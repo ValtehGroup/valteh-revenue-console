@@ -60,17 +60,17 @@ def layout():
                 className="text-muted",
             ),
             html.Div(id="costs-dashboard-content", children=_dashboard_content(selected_month)),
-            dbc.Alert(
-                [
-                    html.Strong("To change a price without losing history: "),
-                    "set the old row's end_date, then add a new row with the same cost_key and the new start_date. "
-                    "Keep actual, budget, and estimate records separate with record_type.",
-                ],
-                color="info",
-            ),
             html.Details(
                 [
-                    html.Summary("Catalog Versions", className="h5"),
+                    html.Summary("Costs Table", className="h5"),
+                    dbc.Alert(
+                        [
+                            html.Strong("To change a price without losing history: "),
+                            "set the old row's end_date, then add a new row with the same cost_key and the new "
+                            "start_date. Keep actual, budget, and estimate records separate with record_type.",
+                        ],
+                        color="info",
+                    ),
                     dbc.Card(
                         dbc.CardBody(data_table("costs-table", _catalog_rows(repo), 15)),
                         className="border-0 shadow-sm",

@@ -1,4 +1,4 @@
 id,name,client_type,status,start_date,end_date,notes
-1,"Notaria 38 Queretaro, Qro.",notary,active,01/04/2026,,Cliente Piloto; Primer piloto SAREMI.
-2,"(test) Notaria X Queretaro, Qro.",notary,pipeline,01/06/2026,,Second Queretaro notary for early-access onboarding after the Notaria 38 pilot.
-3,"(test) Notaria X Celaya, Gto.",notary,pipeline,01/06/2026,,Regional expansion candidate for a nearby Guanajuato market.
+1,"Notaria 38 Queretaro, Qro.",notary,active,01/07/2026,,Cliente Piloto; Primer piloto SAREMI.
+2,"(test) Notaria X Queretaro, Qro.",notary,inactive,01/06/2026,,Second Queretaro notary for early-access onboarding after the Notaria 38 pilot.
+3,"(test) Notaria X Celaya, Gto.",notary,inactive,01/06/2026,,Regional expansion candidate for a nearby Guanajuato market.

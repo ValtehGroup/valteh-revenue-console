@@ -11,7 +11,15 @@ from app.utils.currency import format_mxn
 
 def layout():
     repo = SeedRepository()
-    clients = repo.clients()
+    clients = repo.active_clients(repo.available_months()[-1])
+    if not clients:
+        return html.Div(
+            [
+                html.H1("Client Detail", className="h3"),
+                html.P("Client-specific usage, revenue, cost, and margin history.", className="text-muted"),
+                dbc.Alert("There are no active clients for the latest available month.", color="secondary"),
+            ]
+        )
     default_client_id = _default_client_id(repo, clients)
     return html.Div(
         [

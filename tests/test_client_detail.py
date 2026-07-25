@@ -14,4 +14,4 @@ def test_client_detail_defaults_to_client_active_in_latest_month(monkeypatch) ->
     monkeypatch.setattr("app.data.repositories.current_month_key", lambda: "2026-07")
     repo = SeedRepository()
 
-    assert _default_client_id(repo, repo.clients()) == 2
+    assert _default_client_id(repo, repo.clients()) == 1

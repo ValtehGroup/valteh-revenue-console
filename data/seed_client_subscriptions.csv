@@ -1,4 +1,4 @@
 ﻿id,client_id,pricing_plan_id,start_date,end_date,status,notes
 1,1,1,01/07/2026,30/08/2026,active,Notaria 38 pilot on SIGEN Pilot. Fees come from seed_pricing_plans.csv.
-2,2,2,01/06/2026,01/07/2027,active,Test Queretaro notary on SIGEN Go. Fees come from seed_pricing_plans.csv.
-3,3,2,01/06/2026,01/07/2027,active,Test Celaya notary on SIGEN Go. Fees come from seed_pricing_plans.csv.
+2,2,2,01/06/2026,01/07/2027,inactive,Test Queretaro notary on SIGEN Go. Fees come from seed_pricing_plans.csv.
+3,3,2,01/06/2026,01/07/2027,inactive,Test Celaya notary on SIGEN Go. Fees come from seed_pricing_plans.csv.

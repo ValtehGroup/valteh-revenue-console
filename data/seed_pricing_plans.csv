@@ -1,5 +1,5 @@
 id,name,setup_fee,annual_fee,monthly_fixed_fee,included_documents,included_validations,included_graph_queries,included_blockchain_transactions,price_per_document,price_per_validation,price_per_graph_query,price_per_blockchain_transaction,price_per_property_mint,revenue_share_percentage
-1,SIGEN Pilot,10000,0,0,1000,250,250,100,0,0,0,0,0,0
-2,SIGEN Go,10000,0,4000,500,250,250,100,3,1,0.1,0.5,5,0
-3,SIGEN Plus,10000,0,7000,1000,500,500,200,2,0.5,0.05,0.5,5,0
-4,SIGEN Pro,10000,0,10000,2000,1000,1000,500,1.5,0.3,0.03,0.5,5,0
+1,SIGEN Pilot,10000,0,0,100,1000,1000,100,0,0,0,0,0,0
+2,SIGEN Go,10000,0,5000,100,500,1000,100,5,2,0,0.5,10,0
+3,SIGEN Plus,10000,0,7500,200,1000,1000,200,3,1,0,0.5,7.5,0
+4,SIGEN Pro,10000,0,10000,500,2000,1000,500,2,0.5,0,0.5,5,0
