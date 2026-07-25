@@ -1,11 +1,12 @@
 from decimal import Decimal
 
 import dash_bootstrap_components as dbc
-from dash import html
+from dash import Input, Output, html, no_update
 
 from app.components.tables import data_table
 from app.data.repositories import SeedRepository
 from app.domain.unit_economics import money
+from app.pages.client_detail import detail_section
 from app.utils.currency import format_mxn, format_percent
 
 
@@ -17,9 +18,29 @@ def layout():
         [
             html.H1("Clients", className="h3"),
             html.P("Client status, economics, usage, and margin alerts.", className="text-muted"),
-            dbc.Card(dbc.CardBody(data_table("clients-table", rows, 10)), className="border-0 shadow-sm"),
+            dbc.Card(
+                dbc.CardBody(data_table("clients-table", rows, 10)),
+                className="border-0 shadow-sm mb-4",
+            ),
+            detail_section(repo, repo.clients()),
         ]
     )
+
+
+def register_callbacks(app) -> None:
+    @app.callback(
+        Output("client-detail-client-filter", "value"),
+        Input("clients-table", "active_cell"),
+        prevent_initial_call=True,
+    )
+    def select_client_from_table(active_cell: dict | None):
+        return _client_id_from_active_cell(active_cell)
+
+
+def _client_id_from_active_cell(active_cell: dict | None):
+    if not active_cell or active_cell.get("row_id") is None:
+        return no_update
+    return active_cell["row_id"]
 
 
 def _client_rows(repo: SeedRepository, month: str) -> list[dict]:
@@ -47,6 +68,7 @@ def _client_rows(repo: SeedRepository, month: str) -> list[dict]:
         )
         rows.append(
             {
+                "id": client.id,
                 "client_name": client.name,
                 "status": client.status,
                 "active_services": ", ".join(sorted({event.service_code for event in usage})),

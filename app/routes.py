@@ -6,6 +6,7 @@ from app.pages import client_detail, clients, costs, executive_dashboard, pricin
 def register_routes(app) -> None:
     executive_dashboard.register_callbacks(app)
     client_detail.register_callbacks(app)
+    clients.register_callbacks(app)
     costs.register_callbacks(app)
     pricing.register_callbacks(app)
     scenarios.register_callbacks(app)
@@ -15,7 +16,7 @@ def register_routes(app) -> None:
         if pathname == "/clients":
             return clients.layout()
         if pathname == "/client-detail":
-            return client_detail.layout()
+            return clients.layout()
         if pathname == "/costs":
             return costs.layout()
         if pathname == "/pricing":
