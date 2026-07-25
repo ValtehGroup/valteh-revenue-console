@@ -194,7 +194,11 @@ class SeedRepository:
             and subscription.start_date <= month_start
             and (subscription.end_date is None or subscription.end_date >= month_start)
         }
-        return [client for client in self.clients() if client.id in active_client_ids]
+        return [
+            client
+            for client in self.clients()
+            if client.id in active_client_ids and client.status == "active" and client.start_date <= month_start
+        ]
 
     def active_plan_for_client(self, client_id: int) -> PricingPlan:
         return self.active_plan_for_client_month(client_id, self.available_months()[-1])
@@ -206,6 +210,8 @@ class SeedRepository:
         return next(plan for plan in self.pricing_plans() if plan.id == subscription.pricing_plan_id)
 
     def active_subscription_for_client_month(self, client_id: int, month: str) -> ClientSubscription | None:
+        if client_id not in {client.id for client in self.active_clients(month)}:
+            return None
         month_start = pd.Timestamp(f"{month}-01").date()
         return next(
             (
@@ -228,7 +234,12 @@ class SeedRepository:
         return month_range(min(known_months), max(current_month_key(), *usage_months))
 
     def usage_for_month(self, month: str) -> list[UsageEvent]:
-        return [event for event in self.usage_events() if event.event_timestamp.strftime("%Y-%m") == month]
+        active_client_ids = {client.id for client in self.active_clients(month)}
+        return [
+            event
+            for event in self.usage_events()
+            if event.client_id in active_client_ids and event.event_timestamp.strftime("%Y-%m") == month
+        ]
 
     def usage_for_client_month(self, client_id: int, month: str) -> list[UsageEvent]:
         return [event for event in self.usage_for_month(month) if event.client_id == client_id]
