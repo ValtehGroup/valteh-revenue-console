@@ -11,20 +11,27 @@ from app.utils.currency import format_mxn
 
 def layout():
     repo = SeedRepository()
-    clients = repo.active_clients(repo.available_months()[-1])
+    clients = repo.clients()
+    return html.Div(
+        [
+            html.H1("Clients", className="h3"),
+            html.P("Client-specific usage, revenue, cost, and margin history.", className="text-muted"),
+            detail_section(repo, clients),
+        ]
+    )
+
+
+def detail_section(repo: SeedRepository, clients) -> html.Div:
     if not clients:
         return html.Div(
             [
-                html.H1("Client Detail", className="h3"),
-                html.P("Client-specific usage, revenue, cost, and margin history.", className="text-muted"),
                 dbc.Alert("There are no active clients for the latest available month.", color="secondary"),
             ]
         )
     default_client_id = _default_client_id(repo, clients)
     return html.Div(
         [
-            html.H1("Client Detail", className="h3"),
-            html.P("Client-specific usage, revenue, cost, and margin history.", className="text-muted"),
+            html.H2("Client Detail", className="h4"),
             dbc.Row(
                 [
                     dbc.Col(
@@ -66,14 +73,17 @@ def _client_detail_content(client_id: int):
     service_cost = {}
     service_revenue = {}
     rates = repo.cost_rates(pd.Timestamp(f"{detail_month}-01").date())
-    plan = repo.active_plan_for_client_month(client.id, detail_month)
+    subscription = repo.active_subscription_for_client_month(client.id, detail_month)
+    plan = (
+        next(plan for plan in repo.pricing_plans() if plan.id == subscription.pricing_plan_id) if subscription else None
+    )
     for event in usage:
         service_usage[event.service_code] = service_usage.get(event.service_code, 0) + float(event.quantity)
         service_cost[event.service_code] = service_cost.get(event.service_code, 0) + float(event.quantity) * float(
             rates.get(event.event_type, 0)
         )
         service_revenue[event.service_code] = service_revenue.get(event.service_code, 0) + (
-            _event_price(event.event_type, plan) * float(event.quantity)
+            _event_price(event.event_type, plan) * float(event.quantity) if plan else 0
         )
     trend = pd.DataFrame(
         {
@@ -166,7 +176,10 @@ def _latest_client_month(repo: SeedRepository, client_id: int, months: list[str]
 def _client_operating_margin(repo: SeedRepository, client_id: int, month: str) -> float:
     profitability = repo.client_profitability(client_id, month)
     active_clients = repo.active_clients(month)
-    allocated_fixed_cost = repo.monthly_summary(month)["fixed_cost"] / len(active_clients) if active_clients else 0
+    active_client_ids = {client.id for client in active_clients}
+    allocated_fixed_cost = (
+        repo.monthly_summary(month)["fixed_cost"] / len(active_clients) if client_id in active_client_ids else 0
+    )
     return float(
         calculate_operating_margin(
             profitability.revenue,

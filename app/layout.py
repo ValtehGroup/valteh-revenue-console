@@ -4,7 +4,6 @@ from dash import dcc, html
 NAV_ITEMS = [
     ("Executive Dashboard", "/"),
     ("Clients", "/clients"),
-    ("Client Detail", "/client-detail"),
     ("Costs", "/costs"),
     ("Pricing", "/pricing"),
     ("Usage", "/usage"),
