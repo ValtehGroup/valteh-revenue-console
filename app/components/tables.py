@@ -34,6 +34,21 @@ def table_data_styles() -> list[dict]:
     ]
 
 
+def status_cell_styles(column_id: str) -> list[dict]:
+    return [
+        {
+            "if": {"filter_query": f'{{{column_id}}} = "active"', "column_id": column_id},
+            "color": "var(--color-status-active)",
+            "fontWeight": "700",
+        },
+        {
+            "if": {"filter_query": f'{{{column_id}}} = "inactive"', "column_id": column_id},
+            "color": "var(--color-danger)",
+            "fontWeight": "700",
+        },
+    ]
+
+
 def data_table(table_id: str, rows: list[dict], page_size: int = 10, **kwargs) -> dash_table.DataTable:
     excluded_columns = set(kwargs.pop("excluded_columns", []))
     column_ids = [column_id for column_id in rows[0].keys() if column_id not in excluded_columns] if rows else []

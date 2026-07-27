@@ -4,7 +4,7 @@ from decimal import Decimal
 from app.data.repositories import SeedRepository
 from app.domain.models import Client, ClientProfitability, UsageEvent
 from app.pages.client_detail import _client_detail_content
-from app.pages.clients import _client_id_from_active_cell, _client_rows
+from app.pages.clients import _client_id_from_active_cell, _client_rows, _client_table_styles
 from app.pages.usage import _usage_rows
 
 
@@ -16,6 +16,20 @@ def test_clients_table_includes_active_and_inactive_clients() -> None:
     assert {row["status"] for row in rows} == {"active", "inactive"}
     assert [row["client_name"] for row in rows if row["status"] == "active"] == ["Notaria 38 Queretaro, Qro."]
     assert all(row["alerts"] == "Inactive" for row in rows if row["status"] == "inactive")
+
+
+def test_client_status_cells_use_lowercase_saremi_status_colors() -> None:
+    rows = _client_rows(SeedRepository(), "2026-07")
+    styles = _client_table_styles(None)
+
+    active = next(style for style in styles if style["if"].get("filter_query") == '{client_status} = "active"')
+    inactive = next(
+        style for style in styles if style["if"].get("filter_query") == '{client_status} = "inactive"'
+    )
+
+    assert all(row["client_status"] == row["client_status"].lower() for row in rows)
+    assert active["color"] == "var(--color-status-active)"
+    assert inactive["color"] == "var(--color-danger)"
 
 
 def test_client_lifecycle_dates_follow_status_and_active_services_are_hidden() -> None:

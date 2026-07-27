@@ -17,13 +17,25 @@ def test_user_guide_is_linked_and_renders_repository_markdown() -> None:
     assert sidebar_footer.children[0].href == "/guide"
 
     page = page_layout("/guide")
-    markdown = page.children
+    guide_nav, guide_content = page.children
+    markdown_components = [
+        component for component in _walk(guide_content) if isinstance(component, dcc.Markdown)
+    ]
+    rendered_markdown = "\n\n".join(component.children for component in markdown_components)
+    nav_links = [
+        component
+        for component in _walk(guide_nav)
+        if getattr(component, "href", "").startswith("#")
+    ]
 
-    assert isinstance(markdown, dcc.Markdown)
-    assert markdown.link_target == "_blank"
-    assert "## Costs" in markdown.children
-    assert "## Clients" in markdown.children
-    assert markdown.children == user_guide.GUIDE_PATH.read_text(encoding="utf-8")
+    assert guide_nav.className == "user-guide-nav"
+    assert guide_content.className == "user-guide-content"
+    assert {link.href for link in nav_links} >= {"#general-interaction", "#costs", "#clients"}
+    assert all(component.link_target == "_blank" for component in markdown_components)
+    assert "## Costs" in rendered_markdown
+    assert "## Clients" in rendered_markdown
+    assert "## In this guide" not in rendered_markdown
+    assert "## In this guide" in user_guide.GUIDE_PATH.read_text(encoding="utf-8")
 
 
 def _walk(component):
