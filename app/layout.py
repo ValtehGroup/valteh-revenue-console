@@ -11,6 +11,7 @@ NAV_ITEMS = [
     ("Usage", "/usage"),
     ("Scenarios", "/scenarios"),
 ]
+GUIDE_ITEM = ("User Guide", "/guide")
 
 
 def app_layout() -> html.Div:
@@ -32,11 +33,17 @@ def app_layout() -> html.Div:
                 ],
                 className="brand-header",
             ),
-            theme_toggle(),
             dbc.Nav(
                 [dbc.NavLink(label, href=href, active="exact") for label, href in NAV_ITEMS],
                 vertical=True,
                 pills=True,
+            ),
+            html.Div(
+                [
+                    dbc.NavLink(GUIDE_ITEM[0], href=GUIDE_ITEM[1], active="exact"),
+                    theme_toggle(),
+                ],
+                className="sidebar-footer",
             ),
         ],
         className="sidebar",

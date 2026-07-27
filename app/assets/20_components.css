@@ -8,7 +8,6 @@
   left: 0;
   overflow-y: auto;
   padding: var(--space-6);
-  padding-bottom: calc(2.75rem + var(--space-8));
   position: fixed;
   top: 0;
   width: var(--sidebar-width);
@@ -44,18 +43,24 @@
 .theme-toggle {
   align-items: center;
   background: var(--color-surface-elevated);
-  bottom: var(--space-6);
   border: 0.0625rem solid var(--color-border-strong);
   border-radius: var(--radius-md);
   color: var(--color-text);
   cursor: pointer;
   display: flex;
   justify-content: center;
-  left: var(--space-6);
   min-height: 2.75rem;
   padding: var(--space-2) var(--space-3);
-  position: absolute;
+  position: static;
   width: auto;
+}
+
+.sidebar-footer {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+  margin-top: auto;
+  padding-top: var(--space-6);
 }
 
 .theme-toggle:hover {
@@ -230,6 +235,75 @@
 .scenario-card-title {
   color: var(--color-text);
   font-weight: 700;
+}
+
+.user-guide-page {
+  max-width: 76rem !important;
+}
+
+.user-guide-content {
+  background: var(--color-surface);
+  border: 0.0625rem solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  color: var(--color-text);
+  padding: var(--space-8);
+}
+
+.user-guide-content h2 {
+  border-bottom: 0.0625rem solid var(--color-border);
+  margin-top: 2.5rem;
+  padding-bottom: var(--space-2);
+}
+
+.user-guide-content h3 {
+  margin-top: 2rem;
+}
+
+.user-guide-content h4 {
+  margin-top: 1.5rem;
+}
+
+.user-guide-content table {
+  border-collapse: collapse;
+  display: block;
+  margin-block: var(--space-5);
+  max-width: 100%;
+  overflow-x: auto;
+  width: max-content;
+}
+
+.user-guide-content th,
+.user-guide-content td {
+  border: 0.0625rem solid var(--color-border);
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  vertical-align: top;
+}
+
+.user-guide-content th {
+  background: var(--color-surface-elevated);
+  color: var(--color-text);
+}
+
+.user-guide-content code {
+  background: var(--color-surface-elevated);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  padding: 0.1em 0.3em;
+}
+
+.user-guide-content pre {
+  background: var(--color-surface-elevated);
+  border: 0.0625rem solid var(--color-border);
+  border-radius: var(--radius-sm);
+  overflow-x: auto;
+  padding: var(--space-4);
+}
+
+.user-guide-content pre code {
+  background: transparent;
+  padding: 0;
 }
 
 .form-label,
