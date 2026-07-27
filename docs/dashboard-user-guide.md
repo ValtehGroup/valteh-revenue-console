@@ -4,6 +4,26 @@ This guide explains how dashboard users maintain Costs and Clients, what each
 table column means, how historical changes are preserved, and which operations
 are intentionally unavailable.
 
+## In this guide
+
+- [General interaction](#general-interaction)
+- [Costs](#costs)
+  - [What the Costs tab represents](#what-the-costs-tab-represents)
+  - [Add a cost](#add-a-cost)
+  - [Modify a cost](#modify-a-cost)
+  - [What users cannot do with costs](#what-users-cannot-do-with-costs)
+  - [Cost fields and table columns](#cost-fields-and-table-columns)
+  - [Cost examples](#cost-examples)
+- [Clients](#clients)
+  - [What the Clients tab represents](#what-the-clients-tab-represents)
+  - [Add a client](#add-a-client)
+  - [Modify a client](#modify-a-client)
+  - [What users cannot do with clients](#what-users-cannot-do-with-clients)
+  - [Client table columns](#client-table-columns)
+  - [Client Detail behavior](#client-detail-behavior)
+  - [Client examples](#client-examples)
+- [Quick decision guide](#quick-decision-guide)
+
 ## General interaction
 
 - Click anywhere on a table row to select it. The highlighted row is the active
@@ -25,8 +45,8 @@ the maintained catalog behind those calculations. A cost can have multiple
 dated versions so past months keep the values that were valid at that time.
 
 Only records with `Record Type = actual` participate in realized costs and
-margins. Budget and estimate records remain visible in the table but do not
-affect actual financial results.
+margins. Estimate records remain visible in the table but do not affect actual
+financial results.
 
 ### Add a cost
 
@@ -142,7 +162,7 @@ the restored row already has a past End Date, its table status returns to
 | Base Amount | `Quantity × Unit Cost`, converted and displayed in MXN. This is the configured amount, not always the amount recognized in every month. |
 | Start Date | First date on which this version can apply. |
 | End Date | Last date on which this version can apply; blank means open-ended. |
-| Record Type | `actual` affects realized results; `budget` and `estimate` are informational. |
+| Record Type | `actual` affects realized results; `estimate` is informational and represents a predicted or benchmark cost. |
 | Updated At | UTC audit timestamp of the most recent change. |
 | Notes | Source, rationale, assumptions, or operational context. |
 
@@ -366,4 +386,3 @@ Do not add the returning customer as a new client.
 | Client relationship ends | (De)activate client → Deactivate |
 | Inactive client returns | (De)activate client → Reactivate, then assign a plan |
 | Connect an external product's tenant ID | Add reference |
-

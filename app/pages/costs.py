@@ -10,7 +10,7 @@ from dash import ALL, Input, Output, State, ctx, dcc, html, no_update
 
 from app.components.chart_theme import DEFAULT_PLOTLY_COLORWAY, apply_chart_theme
 from app.components.charts import bar_chart
-from app.components.tables import data_table, table_data_styles
+from app.components.tables import data_table, status_cell_styles, table_data_styles
 from app.data.cost_repository import (
     CostCommand,
     CostManagementError,
@@ -19,6 +19,8 @@ from app.data.cost_repository import (
 )
 from app.data.repositories import SeedRepository
 from app.utils.currency import format_mxn
+
+RECORD_TYPE_OPTIONS = ("actual", "estimate")
 
 
 def layout():
@@ -93,9 +95,9 @@ def layout():
                                     dcc.Dropdown(
                                         id="cost-status-filter",
                                         options=[
-                                            {"label": "All", "value": "all"},
-                                            {"label": "Active", "value": "active"},
-                                            {"label": "Inactive", "value": "inactive"},
+                                            {"label": "all", "value": "all"},
+                                            {"label": "active", "value": "active"},
+                                            {"label": "inactive", "value": "inactive"},
                                         ],
                                         value="all",
                                         clearable=False,
@@ -217,7 +219,7 @@ def register_callbacks(app) -> None:
     def enable_cost_actions(selected_row_id: int | None, table_rows: list[dict] | None):
         disabled = selected_row_id is None
         selected = _selected_cost(selected_row_id, table_rows)
-        is_inactive = selected is not None and selected.get("status") == "Inactive"
+        is_inactive = selected is not None and selected.get("status") == "inactive"
         return disabled, disabled, disabled, disabled or is_inactive, disabled or not is_inactive
 
     @app.callback(
@@ -486,9 +488,9 @@ def _catalog_rows(repo: SeedRepository, status: str = "all") -> list[dict]:
             "cost_key": item.cost_key,
             "name": item.name,
             "status": (
-                "Inactive"
+                "inactive"
                 if not item.enabled
-                else ("Ended" if item.end_date and item.end_date < date.today() else "Active")
+                else ("ended" if item.end_date and item.end_date < date.today() else "active")
             ),
             "category": item.category,
             "service_line": item.service_line or "Shared",
@@ -529,25 +531,25 @@ def _selected_cost(selected_row_id: int | str | None, table_rows: list[dict] | N
 
 def _cost_table_styles(selected_row_id: str | None) -> list[dict]:
     styles = table_data_styles()
-    if selected_row_id is None:
-        return styles
-    row_filter = f'{{id}} = "{selected_row_id}"'
-    styles.extend(
-        [
-            {
-                "if": {"filter_query": row_filter},
-                "backgroundColor": "var(--color-surface-soft)",
-                "borderTop": "2px solid var(--color-primary)",
-                "borderBottom": "2px solid var(--color-primary)",
-                "color": "var(--color-text)",
-                "fontWeight": "600",
-            },
-            {
-                "if": {"filter_query": row_filter, "column_id": "id"},
-                "borderLeft": "4px solid var(--color-primary)",
-            },
-        ]
-    )
+    if selected_row_id is not None:
+        row_filter = f'{{id}} = "{selected_row_id}"'
+        styles.extend(
+            [
+                {
+                    "if": {"filter_query": row_filter},
+                    "backgroundColor": "var(--color-surface-soft)",
+                    "borderTop": "2px solid var(--color-primary)",
+                    "borderBottom": "2px solid var(--color-primary)",
+                    "color": "var(--color-text)",
+                    "fontWeight": "600",
+                },
+                {
+                    "if": {"filter_query": row_filter, "column_id": "id"},
+                    "borderLeft": "4px solid var(--color-primary)",
+                },
+            ]
+        )
+    styles.extend(status_cell_styles("status"))
     return styles
 
 
@@ -652,6 +654,9 @@ def _action_form(action: str, selected: dict | None):
             )
         )
         common.append(_field("effective_from", "Effective from", kind="date", required=True))
+    record_type = selected.get("record_type", "actual")
+    if record_type not in RECORD_TYPE_OPTIONS:
+        record_type = "estimate"
     common.extend(
         [
             _field(
@@ -673,8 +678,8 @@ def _action_form(action: str, selected: dict | None):
             _field(
                 "record_type",
                 "Record type",
-                selected.get("record_type", "actual"),
-                options=["actual", "budget", "estimate"],
+                record_type,
+                options=RECORD_TYPE_OPTIONS,
             ),
         ]
     )

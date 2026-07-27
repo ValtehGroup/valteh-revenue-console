@@ -5,7 +5,7 @@ from decimal import Decimal
 import dash_bootstrap_components as dbc
 from dash import ALL, Input, Output, State, ctx, dcc, html, no_update
 
-from app.components.tables import data_table, table_data_styles
+from app.components.tables import data_table, status_cell_styles, table_data_styles
 from app.data.client_repository import (
     ClientCommand,
     ClientManagementError,
@@ -50,9 +50,9 @@ def layout():
                             dcc.Dropdown(
                                 id="client-status-filter",
                                 options=[
-                                    {"label": "All", "value": "all"},
-                                    {"label": "Active", "value": "active"},
-                                    {"label": "Inactive", "value": "inactive"},
+                                    {"label": "all", "value": "all"},
+                                    {"label": "active", "value": "active"},
+                                    {"label": "inactive", "value": "inactive"},
                                 ],
                                 value="all",
                                 clearable=False,
@@ -352,18 +352,18 @@ def _selected_client(selected_id: int | None, rows: list[dict] | None) -> dict |
 
 def _client_table_styles(selected_id: int | None) -> list[dict]:
     styles = table_data_styles()
-    if selected_id is None:
-        return styles
-    styles.append(
-        {
-            "if": {"filter_query": f"{{id}} = {selected_id}"},
-            "backgroundColor": "var(--color-surface-soft)",
-            "borderTop": "2px solid var(--color-primary)",
-            "borderBottom": "2px solid var(--color-primary)",
-            "color": "var(--color-text)",
-            "fontWeight": "600",
-        }
-    )
+    if selected_id is not None:
+        styles.append(
+            {
+                "if": {"filter_query": f"{{id}} = {selected_id}"},
+                "backgroundColor": "var(--color-surface-soft)",
+                "borderTop": "2px solid var(--color-primary)",
+                "borderBottom": "2px solid var(--color-primary)",
+                "color": "var(--color-text)",
+                "fontWeight": "600",
+            }
+        )
+    styles.extend(status_cell_styles("client_status"))
     return styles
 
 

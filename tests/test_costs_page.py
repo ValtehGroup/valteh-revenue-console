@@ -1,10 +1,13 @@
 from decimal import Decimal
 
+from dash import dcc
+
 from app.components.chart_theme import DEFAULT_PLOTLY_COLORWAY
 from app.components.tables import data_table
 from app.data.repositories import SeedRepository
 from app.main import create_app
 from app.pages.costs import (
+    _action_form,
     _catalog_rows,
     _cost_table_styles,
     _cost_type_for_frequency,
@@ -13,6 +16,17 @@ from app.pages.costs import (
     _summarize_cost_rows,
     _year_cost_chart,
 )
+
+
+def _walk(component):
+    yield component
+    children = getattr(component, "children", None)
+    if children is None:
+        return
+    if not isinstance(children, (list, tuple)):
+        children = [children]
+    for child in children:
+        yield from _walk(child)
 
 
 def _cost_row(month: str, fixed: str, variable: str, one_time: str = "0") -> dict:
@@ -73,6 +87,18 @@ def test_month_options_are_limited_to_selected_available_year() -> None:
     ]
 
 
+def test_cost_form_offers_only_actual_and_estimate_record_types() -> None:
+    form = _action_form("add", None)
+    record_type = next(
+        component
+        for component in _walk(form)
+        if isinstance(component, dcc.Dropdown)
+        and component.id == {"type": "cost-field", "name": "record_type"}
+    )
+
+    assert [option["value"] for option in record_type.options] == ["actual", "estimate"]
+
+
 def test_cost_type_is_derived_from_billing_frequency() -> None:
     assert _cost_type_for_frequency("usage") == "variable"
     assert _cost_type_for_frequency("monthly") == "fixed"
@@ -92,6 +118,7 @@ def test_management_table_includes_ids_status_and_audit_timestamps() -> None:
     assert rows[0]["quantity"].replace(",", "").isdigit()
     assert len(rows[0]["unit_cost"].split(".")[-1]) == 2
     assert rows[0]["base_amount"] == f"${repo.cost_items()[0].configured_amount:,.2f} MXN"
+    assert all(row["status"] == row["status"].lower() for row in rows)
 
 
 def test_management_table_prioritizes_operational_columns() -> None:
@@ -137,6 +164,16 @@ def test_selected_cost_row_gets_theme_safe_full_row_highlight() -> None:
     assert selected_row_style["backgroundColor"] == "var(--color-surface-soft)"
     assert selected_row_style["color"] == "var(--color-text)"
     assert selected_row_style["borderTop"] == "2px solid var(--color-primary)"
+
+
+def test_cost_status_cells_use_saremi_status_colors() -> None:
+    styles = _cost_table_styles(None)
+
+    active = next(style for style in styles if style["if"].get("filter_query") == '{status} = "active"')
+    inactive = next(style for style in styles if style["if"].get("filter_query") == '{status} = "inactive"')
+
+    assert active["color"] == "var(--color-status-active)"
+    assert inactive["color"] == "var(--color-danger)"
 
 
 def test_internal_cost_fields_are_excluded_from_rendered_columns() -> None:

@@ -14,6 +14,25 @@
   .card-body {
     padding: var(--space-4);
   }
+
+  .user-guide-shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .user-guide-nav {
+    max-height: none;
+    position: static;
+  }
+
+  .user-guide-nav ul {
+    display: grid;
+    gap: var(--space-1) var(--space-3);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .user-guide-nav li + li {
+    margin-top: 0;
+  }
 }
 
 @media (max-width: 48rem) {
@@ -131,6 +150,10 @@
 
   .user-guide-content {
     padding: var(--space-4);
+  }
+
+  .user-guide-nav ul {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .cost-period-filters {

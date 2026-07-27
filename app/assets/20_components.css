@@ -241,6 +241,60 @@
   max-width: 76rem !important;
 }
 
+.user-guide-shell {
+  align-items: start;
+  display: grid;
+  gap: var(--space-6);
+  grid-template-columns: minmax(12rem, 15rem) minmax(0, 1fr);
+}
+
+.user-guide-nav {
+  background: var(--color-surface);
+  border: 0.0625rem solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  max-height: calc(100vh - (2 * var(--space-6)));
+  overflow-y: auto;
+  padding: var(--space-4);
+  position: sticky;
+  top: var(--space-6);
+}
+
+.user-guide-nav-title {
+  color: var(--color-text);
+  font-weight: 700;
+  margin-bottom: var(--space-3);
+}
+
+.user-guide-nav ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.user-guide-nav li + li {
+  margin-top: var(--space-1);
+}
+
+.user-guide-nav a {
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  display: block;
+  font-size: 0.875rem;
+  padding: 0.3rem var(--space-2);
+  text-decoration: none;
+}
+
+.user-guide-nav a:hover,
+.user-guide-nav a:focus-visible {
+  background: var(--color-surface-elevated);
+  color: var(--color-text);
+}
+
+.user-guide-nav-level-3 {
+  padding-left: var(--space-3);
+}
+
 .user-guide-content {
   background: var(--color-surface);
   border: 0.0625rem solid var(--color-border);
@@ -248,6 +302,10 @@
   box-shadow: var(--shadow-sm);
   color: var(--color-text);
   padding: var(--space-8);
+}
+
+.user-guide-content section {
+  scroll-margin-top: var(--space-6);
 }
 
 .user-guide-content h2 {
