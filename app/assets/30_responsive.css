@@ -129,6 +129,10 @@
     padding: var(--space-3);
   }
 
+  .user-guide-content {
+    padding: var(--space-4);
+  }
+
   .cost-period-filters {
     align-items: stretch;
     flex-direction: column;

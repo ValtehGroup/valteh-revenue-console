@@ -106,9 +106,14 @@ Start command: gunicorn app.main:server
 
 The app also supports `python -m app.main` and reads the host-provided `PORT` environment variable.
 
+## Dashboard User Guide
+
+See [Costs and Clients User Guide](docs/dashboard-user-guide.md) for user-facing
+instructions, column definitions, limitations, and worked examples.
+
 ## Seed Data
 
-The app reads the current pilot seed data from four CSV files:
+The app reads the current pilot seed data from five CSV files:
 
 - `data/seed_clients.csv`
 - `data/seed_client_subscriptions.csv`
