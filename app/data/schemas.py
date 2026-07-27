@@ -22,13 +22,44 @@ class Base(DeclarativeBase):
 
 class ClientORM(Base):
     __tablename__ = "clients"
+    __table_args__ = (
+        CheckConstraint("status IN ('active', 'inactive')", name="ck_clients_status"),
+        CheckConstraint("end_date IS NULL OR end_date >= start_date", name="ck_clients_dates"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    client_code: Mapped[str] = mapped_column(String(40), unique=True, nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     client_type: Mapped[str] = mapped_column(String(80), nullable=False)
     status: Mapped[str] = mapped_column(String(40), nullable=False)
     start_date: Mapped[date] = mapped_column(Date, nullable=False)
+    end_date: Mapped[date | None] = mapped_column(Date)
     notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+
+
+class ClientExternalReferenceORM(Base):
+    __tablename__ = "client_external_references"
+    __table_args__ = (
+        UniqueConstraint(
+            "source_system", "external_client_reference", name="uq_client_external_reference_source_value"
+        ),
+        Index("ix_client_external_references_client_id", "client_id"),
+        Index(
+            "ix_client_external_references_source_value",
+            "source_system",
+            "external_client_reference",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    client_id: Mapped[int] = mapped_column(ForeignKey("clients.id"), nullable=False)
+    source_system: Mapped[str] = mapped_column(String(80), nullable=False)
+    external_client_reference: Mapped[str] = mapped_column(String(160), nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class ServiceORM(Base):

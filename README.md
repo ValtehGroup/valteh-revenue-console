@@ -199,6 +199,19 @@ pytest
 
 The repository layer in `app/data/repositories.py` exposes this data to the UI and domain logic. `app/data/database.py` and `app/data/schemas.py` define the SQLAlchemy foundation for moving from CSV-backed local data to SQLite or PostgreSQL persistence.
 
+## Client Management
+
+`data/seed_clients.csv` initializes the client catalog only when the runtime
+table is empty. After initialization, Clients are managed in SQL and CSV files
+are not rewritten. Real-client public IDs use `client_0001`; designated test
+clients use `test_0001`. Numeric primary keys remain internal for relationships
+and calculations.
+
+External product identifiers are mapped by `(source_system, client_reference)`.
+API keys remain environment configuration and are never client identifiers.
+Deactivation ends the client lifecycle and active subscriptions without deleting
+usage, revenue, imported events, or reference mappings.
+
 ## Project Structure
 
 ```text

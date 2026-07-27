@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import plotly.express as px
 import plotly.graph_objects as go
 from flask import has_request_context, request
 
 FONT_FAMILY = '"Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif'
+DEFAULT_PLOTLY_COLORWAY = list(px.colors.qualitative.Plotly)
 
 PLOTLY_THEME = {
     "light": {
@@ -31,7 +33,7 @@ def chart_colorway(theme: str | None = None) -> list[str]:
     return list(PLOTLY_THEME[_resolved_theme(theme)]["colorway"])
 
 
-def plotly_template(theme: str | None = None) -> go.layout.Template:
+def plotly_template(theme: str | None = None, colorway: list[str] | None = None) -> go.layout.Template:
     colors = PLOTLY_THEME[_resolved_theme(theme)]
     axis = {
         "automargin": True,
@@ -46,7 +48,7 @@ def plotly_template(theme: str | None = None) -> go.layout.Template:
     return go.layout.Template(
         layout={
             "autosize": True,
-            "colorway": colors["colorway"],
+            "colorway": colorway if colorway is not None else colors["colorway"],
             "font": {"color": colors["text"], "family": FONT_FAMILY, "size": 13},
             "hoverlabel": {
                 "bgcolor": colors["hover_bg"],
@@ -72,8 +74,12 @@ def plotly_template(theme: str | None = None) -> go.layout.Template:
     )
 
 
-def apply_chart_theme(figure: go.Figure, theme: str | None = None) -> go.Figure:
-    figure.update_layout(template=plotly_template(theme))
+def apply_chart_theme(
+    figure: go.Figure,
+    theme: str | None = None,
+    colorway: list[str] | None = None,
+) -> go.Figure:
+    figure.update_layout(template=plotly_template(theme, colorway))
     return figure
 
 

@@ -215,6 +215,11 @@ Metadata must be:
 
 Prefer top-level common fields over metadata for shared identifiers such as `document_id`, `property_id`, `transaction_id`, `fraud_alert_id`, and `certificate_id`.
 
+For systems controlled by Valteh, use the revenue console's public `client_code`
+(for example `client_0001`) as `client_reference` when practical. Consumers must
+still resolve the pair `(source_system, client_reference)` through the external
+reference mapping because third-party products may use their own tenant IDs.
+
 ## 7. PII And Redaction Rules
 
 Source systems must minimize PII in exported events.
