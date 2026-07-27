@@ -5,11 +5,14 @@ import dash
 import dash_bootstrap_components as dbc
 
 from app.config import get_settings
+from app.data.seed_data import seed_database
 from app.layout import app_layout
 from app.routes import register_routes
+from app.theme import THEME_INDEX_STRING, register_theme_callbacks
 
 
 def create_app() -> dash.Dash:
+    seed_database()
     settings = get_settings()
     assets_folder = Path(__file__).resolve().parent / "assets"
     app = dash.Dash(
@@ -19,8 +22,10 @@ def create_app() -> dash.Dash:
         assets_folder=str(assets_folder),
         title=settings.app_name,
     )
+    app.index_string = THEME_INDEX_STRING
     app.layout = app_layout()
     register_routes(app)
+    register_theme_callbacks(app)
     return app
 
 

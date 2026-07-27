@@ -70,23 +70,34 @@ class CostItem(BaseModel):
     provider: str | None = None
     category: str
     service_line: str | None = None
-    cost_type: Literal["fixed", "variable", "one_time"]
+    cost_type: Literal["fixed", "variable"]
     charge_basis: Literal["flat", "per_user", "usage"]
     quantity: Decimal = Field(default=Decimal("1"), ge=0)
     unit_cost: Decimal = Field(default=Decimal("0"), ge=0)
+    entered_unit_cost: Decimal | None = Field(default=None, ge=0)
     unit: str
     billing_frequency: Literal["monthly", "annual", "usage", "once"]
     start_date: date | None = None
     end_date: date | None = None
     currency: str = "MXN"
+    entered_currency: str | None = None
     record_type: Literal["actual", "budget", "estimate"] = "actual"
     enabled: bool = True
     notes: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
     @model_validator(mode="after")
     def validate_lifecycle(self) -> "CostItem":
         if self.start_date and self.end_date and self.end_date < self.start_date:
             raise ValueError("end_date must be on or after start_date")
+        valid_frequency = (
+            self.billing_frequency == "usage"
+            if self.cost_type == "variable"
+            else self.billing_frequency in {"monthly", "annual", "once"}
+        )
+        if not valid_frequency:
+            raise ValueError("cost_type and billing_frequency are inconsistent")
         return self
 
     @property
@@ -94,6 +105,18 @@ class CostItem(BaseModel):
         """Amount for one configured recurrence or one-time occurrence."""
 
         return self.quantity * self.unit_cost
+
+    @property
+    def entered_configured_amount(self) -> Decimal:
+        return self.quantity * (self.entered_unit_cost if self.entered_unit_cost is not None else self.unit_cost)
+
+    @property
+    def display_unit_cost(self) -> Decimal:
+        return self.entered_unit_cost if self.entered_unit_cost is not None else self.unit_cost
+
+    @property
+    def display_currency(self) -> str:
+        return self.entered_currency or self.currency
 
 
 class RevenueEvent(BaseModel):

@@ -70,6 +70,24 @@ black .
 ruff check .
 ```
 
+## Interface Themes
+
+The interface supports light and dark themes without duplicating component styles. Semantic design
+tokens live in `app/assets/00_tokens.css`; changing a shared color, border, radius, spacing value, or
+shadow there updates the application consistently. Component rules live in `10_base.css` and
+`20_components.css`, while responsive behavior lives in `30_responsive.css`.
+
+The selector at the top of the sidebar applies `data-theme` to the document root. An explicit choice is
+stored in browser `localStorage`; until a choice is made, the app follows the operating system's
+`prefers-color-scheme` setting. `app/components/chart_theme.py` is the Python source of truth for initial
+Plotly figures, and `app/assets/theme-init.js` updates visible and callback-generated charts when the
+theme changes.
+
+To modify a color, update the corresponding semantic token for light and dark mode in
+`app/assets/00_tokens.css`, then keep the matching Plotly value in `app/components/chart_theme.py` and
+`app/assets/theme-init.js` aligned. Page modules should consume semantic classes and the chart helper
+instead of introducing new hardcoded theme colors.
+
 ## Run With Docker
 
 ```bash
@@ -108,7 +126,9 @@ Pilot assumptions are based on:
 
 ### Maintain cost history
 
-`data/seed_costs.csv` is the cost catalog used by the economic dashboard. It stores actual, budget, and
+`data/seed_costs.csv` is the initial reference catalog used to seed the economic dashboard. Runtime cost
+management is stored in the SQL database configured by `DATABASE_URL`; the Dash app never rewrites the CSV.
+The CSV stores actual, budget, and
 estimate cost records for fixed subscriptions, one-time purchases, and usage-based rates. Each row is one
 version of a cost. The numeric `id` identifies that specific row, while `cost_key` is the stable business
 identifier for the underlying cost concept across versions.
@@ -153,6 +173,8 @@ To add users to a per-user subscription, end the old row and add a new row with 
 `charge_basis=flat` or `per_user`, `billing_frequency=monthly`, and the appropriate `service_line`,
 `provider`, and `category`. To add a usage-based cost, use `cost_type=variable`, `charge_basis=usage`,
 `billing_frequency=usage`, and set `unit` to the usage event type that should consume the rate.
+Use `cost_type=fixed` with `billing_frequency=once` for a one-time cost. Cost type describes whether
+the amount varies with usage; billing frequency controls when it is recognized.
 
 Usage-based costs are mapped by `unit`: for example, a cost row with `unit=saremi.document_validation` applies
 to usage events whose `event_type` is `saremi.document_validation`. The same event type can have multiple
@@ -161,7 +183,8 @@ cost components with different `cost_key` values, such as an external AI rate pl
 To disable or end a cost, prefer setting `end_date` when the cost lifecycle is known. Use `enabled=FALSE`
 only when the row should be excluded operationally without changing its historical dates.
 
-The CSV-backed app reads seed files at runtime. The schema initialization helper is idempotent and can be run
+The app imports costs only when the database cost catalog is empty and never overwrites later user changes.
+Schema changes are managed with Alembic. The initialization helper is idempotent and can be run
 with:
 
 ```bash

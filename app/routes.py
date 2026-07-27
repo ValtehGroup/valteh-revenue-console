@@ -11,8 +11,12 @@ def register_routes(app) -> None:
     pricing.register_callbacks(app)
     scenarios.register_callbacks(app)
 
-    @app.callback(Output("page-content", "children"), Input("url", "pathname"))
-    def render_page(pathname: str):
+    @app.callback(
+        Output("page-content", "children"),
+        Input("url", "pathname"),
+        Input("theme-store", "data"),
+    )
+    def render_page(pathname: str, _theme_state: dict | None):
         if pathname == "/clients":
             return clients.layout()
         if pathname == "/client-detail":

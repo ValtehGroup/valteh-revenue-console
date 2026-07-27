@@ -226,7 +226,7 @@ def _monthly_revenue_card(month: str) -> html.Div:
                         ),
                     ],
                 ),
-                className="shadow-sm border-0 h-100",
+                className="kpi-card h-100",
             ),
             html.Div(tooltip, className="kpi-tooltip", id="executive-monthly-revenue-tooltip", role="tooltip"),
         ],
@@ -244,7 +244,7 @@ def _monthly_revenue_card_content(month: str, show_split: bool) -> list:
     split = repo.monthly_revenue_split(month)
     if show_split:
         return [
-            html.Div("Monthly Revenue Split", className="text-muted small text-uppercase"),
+            html.Div("Monthly Revenue Split", className="kpi-label"),
             html.Div(
                 [
                     html.Div(
@@ -264,12 +264,12 @@ def _monthly_revenue_card_content(month: str, show_split: bool) -> list:
                 ],
                 className="mb-1",
             ),
-            html.Div("Click to return to total", className="small text-muted"),
+            html.Div("Click to return to total", className="kpi-subtitle"),
         ]
     return [
-        html.Div("Monthly Revenue", className="text-muted small text-uppercase"),
-        html.Div(format_mxn(split["total"]), className="h3 mb-1 text-primary"),
-        html.Div("Click for fixed / variable split", className="small text-muted"),
+        html.Div("Monthly Revenue", className="kpi-label"),
+        html.Div(format_mxn(split["total"]), className="kpi-value"),
+        html.Div("Click for fixed / variable split", className="kpi-subtitle"),
     ]
 
 

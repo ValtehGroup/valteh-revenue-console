@@ -1,0 +1,587 @@
+.sidebar {
+  background: var(--color-surface);
+  border-right: 0.0625rem solid var(--color-border);
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  left: 0;
+  overflow-y: auto;
+  padding: var(--space-6);
+  padding-bottom: calc(2.75rem + var(--space-8));
+  position: fixed;
+  top: 0;
+  width: var(--sidebar-width);
+  z-index: 100;
+}
+
+.brand-header {
+  align-items: center;
+  display: flex;
+  gap: var(--space-3);
+}
+
+.brand-logo {
+  flex: 0 0 auto;
+  height: 3rem;
+  object-fit: contain;
+  width: 3rem;
+}
+
+.brand-name {
+  color: var(--color-text);
+  font-size: 1.15rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.brand-product {
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.theme-toggle {
+  align-items: center;
+  background: var(--color-surface-elevated);
+  bottom: var(--space-6);
+  border: 0.0625rem solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  cursor: pointer;
+  display: flex;
+  justify-content: center;
+  left: var(--space-6);
+  min-height: 2.75rem;
+  padding: var(--space-2) var(--space-3);
+  position: absolute;
+  width: auto;
+}
+
+.theme-toggle:hover {
+  background: var(--color-surface-soft);
+  border-color: var(--color-primary);
+}
+
+.theme-toggle-state {
+  align-items: center;
+  display: inline-flex;
+  gap: var(--space-2);
+}
+
+.theme-toggle-icon {
+  align-items: center;
+  border: 0.0625rem solid var(--color-border);
+  border-radius: 50%;
+  color: var(--color-primary);
+  display: inline-flex;
+  font-size: 1rem;
+  font-weight: 700;
+  height: 1.5rem;
+  justify-content: center;
+  line-height: 1;
+  width: 1.5rem;
+}
+
+.theme-toggle-label {
+  font-size: 0.875rem;
+  font-weight: 650;
+}
+
+.sidebar .nav {
+  gap: var(--space-1);
+}
+
+.sidebar .nav-link {
+  align-items: center;
+  border: 0.0625rem solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  display: flex;
+  font-size: 0.9rem;
+  font-weight: 600;
+  min-height: 2.75rem;
+  padding: var(--space-2) var(--space-3);
+}
+
+.sidebar .nav-link:hover {
+  background: var(--color-surface-elevated);
+  color: var(--color-text);
+}
+
+.sidebar .nav-link.active {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-primary-contrast);
+}
+
+.sidebar .nav-link:focus-visible {
+  outline-offset: 0.0625rem;
+}
+
+.card,
+.content-card,
+.kpi-card {
+  background: var(--color-surface);
+  border: 0.0625rem solid var(--color-border) !important;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  color: var(--color-text);
+}
+
+.card-body {
+  padding: var(--space-5);
+}
+
+.kpi-card-wrapper {
+  position: relative;
+}
+
+.kpi-label {
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  font-weight: 650;
+  text-transform: uppercase;
+}
+
+.kpi-value {
+  color: var(--color-primary);
+  font-size: 1.65rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  line-height: 1.25;
+  margin-block: var(--space-1);
+}
+
+.kpi-value--secondary {
+  color: var(--color-secondary);
+}
+
+.kpi-value--success {
+  color: var(--color-success);
+}
+
+.kpi-value--warning {
+  color: var(--color-warning);
+}
+
+.kpi-value--danger {
+  color: var(--color-danger);
+}
+
+.kpi-subtitle {
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+}
+
+.revenue-card-toggle,
+.cost-card-toggle {
+  cursor: pointer;
+}
+
+.revenue-card-toggle .card,
+.cost-card-toggle .card {
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.revenue-card-toggle:hover .card,
+.cost-card-toggle:hover .card {
+  border-color: var(--color-primary) !important;
+  box-shadow: var(--shadow-md);
+}
+
+.revenue-card-toggle:focus-visible,
+.cost-card-toggle:focus-visible {
+  border-radius: var(--radius-md);
+}
+
+.revenue-split-row,
+.cost-split-row {
+  align-items: center;
+  display: flex;
+  gap: var(--space-4);
+  justify-content: space-between;
+  line-height: 1.75;
+}
+
+.revenue-split-row strong,
+.cost-split-row strong {
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.scenario-summary-card {
+  border-color: var(--color-border) !important;
+}
+
+.scenario-summary-base {
+  background: var(--color-info-bg);
+}
+
+.scenario-summary-pessimistic {
+  background: var(--color-danger-bg);
+}
+
+.scenario-summary-optimistic {
+  background: var(--color-success-bg);
+}
+
+.scenario-card-title {
+  color: var(--color-text);
+  font-weight: 700;
+}
+
+.form-label,
+label {
+  color: var(--color-text);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.form-control,
+.form-select {
+  background: var(--color-surface);
+  border-color: var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  min-height: 2.625rem;
+}
+
+.form-control:hover,
+.form-select:hover {
+  border-color: var(--color-primary);
+}
+
+.form-control:focus,
+.form-select:focus {
+  background: var(--color-surface);
+  border-color: var(--color-focus);
+  box-shadow: 0 0 0 0.1875rem color-mix(in srgb, var(--color-focus) 22%, transparent);
+  color: var(--color-text);
+}
+
+.form-control:disabled,
+.form-select:disabled {
+  background: var(--color-surface-elevated);
+  color: var(--color-text-muted);
+}
+
+.Select-control,
+.Select-menu-outer,
+.Select-menu,
+.VirtualizedSelectOption {
+  background: var(--color-surface) !important;
+  border-color: var(--color-border-strong) !important;
+  color: var(--color-text) !important;
+}
+
+.Select-control {
+  border-radius: var(--radius-sm) !important;
+  min-height: 2.625rem;
+}
+
+.is-focused:not(.is-open) > .Select-control,
+.Select.is-focused > .Select-control {
+  border-color: var(--color-focus) !important;
+  box-shadow: 0 0 0 0.1875rem color-mix(in srgb, var(--color-focus) 22%, transparent) !important;
+}
+
+.Select-value-label,
+.Select-placeholder,
+.Select-input > input {
+  color: var(--color-text) !important;
+}
+
+.Select-placeholder {
+  color: var(--color-text-muted) !important;
+}
+
+.Select-option.is-focused,
+.VirtualizedSelectFocusedOption {
+  background: var(--color-row-hover) !important;
+  color: var(--color-text) !important;
+}
+
+.Select-option.is-selected {
+  background: var(--color-surface-soft) !important;
+  color: var(--color-text) !important;
+}
+
+.Select-arrow {
+  border-top-color: var(--color-text-muted) !important;
+}
+
+/* Dash 4 dropdowns use their own component variables rather than legacy Select classes. */
+.dash-dropdown,
+.dash-dropdown-content {
+  --Dash-Fill-Inverse-Strong: var(--color-surface);
+  --Dash-Fill-Interactive-Strong: var(--color-primary);
+  --Dash-Fill-Interactive-Weak: var(--color-surface-soft);
+  --Dash-Fill-Disabled: var(--color-border);
+  --Dash-Stroke-Strong: var(--color-border-strong);
+  --Dash-Text-Strong: var(--color-text);
+  --Dash-Text-Weak: var(--color-text-muted);
+  --Dash-Text-Disabled: var(--color-text-muted);
+  background: var(--color-surface) !important;
+  border-color: var(--color-border-strong) !important;
+  color: var(--color-text) !important;
+}
+
+.dash-dropdown-value,
+.dash-dropdown-trigger-icon,
+.dash-dropdown-search,
+.dash-dropdown-option {
+  color: var(--color-text) !important;
+}
+
+.dash-dropdown-placeholder {
+  color: var(--color-text-muted) !important;
+}
+
+.dash-dropdown-option:hover,
+.dash-dropdown-option[data-highlighted] {
+  background: var(--color-row-hover) !important;
+  color: var(--color-text) !important;
+}
+
+.form-check-input {
+  background-color: var(--color-surface);
+  border-color: var(--color-border-strong);
+}
+
+.form-check-input:checked {
+  background-color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.form-check-input:focus {
+  border-color: var(--color-focus);
+  box-shadow: 0 0 0 0.1875rem color-mix(in srgb, var(--color-focus) 22%, transparent);
+}
+
+.btn-primary {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-primary-contrast);
+}
+
+.btn-primary:hover,
+.btn-primary:focus {
+  background: var(--color-primary-hover);
+  border-color: var(--color-primary-hover);
+  color: var(--color-primary-contrast);
+}
+
+.alert {
+  background: var(--color-surface-elevated);
+  border: 0.0625rem solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+}
+
+.alert-info {
+  background: var(--color-info-bg);
+  border-color: var(--color-info-border);
+  color: var(--color-text);
+}
+
+.alert-light,
+.alert-secondary {
+  background: var(--color-surface-elevated);
+  border-color: var(--color-border);
+  color: var(--color-text);
+}
+
+.field-label-row {
+  align-items: center;
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.field-info-wrapper {
+  display: inline-flex;
+  position: relative;
+}
+
+.field-info-icon {
+  align-items: center;
+  border: 0.0625rem solid var(--color-border-strong);
+  border-radius: 50%;
+  color: var(--color-text-muted);
+  cursor: help;
+  display: inline-flex;
+  font-size: 0.68rem;
+  font-weight: 700;
+  height: 1.125rem;
+  justify-content: center;
+  line-height: 1;
+  width: 1.125rem;
+}
+
+.field-tooltip,
+.kpi-tooltip {
+  background: var(--color-tooltip-bg);
+  border: 0.0625rem solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+  color: var(--color-tooltip-text);
+  font-size: 0.8rem;
+  line-height: 1.4;
+  max-width: min(18rem, calc(100vw - 2rem));
+  opacity: 0;
+  padding: var(--space-2) var(--space-3);
+  pointer-events: none;
+  position: absolute;
+  transform: translateY(var(--space-1));
+  transition: opacity 120ms ease, transform 120ms ease;
+  visibility: hidden;
+  width: max-content;
+  z-index: 200;
+}
+
+.field-tooltip {
+  bottom: calc(100% + var(--space-2));
+  left: calc(var(--space-3) * -1);
+}
+
+.kpi-tooltip {
+  bottom: calc(100% + var(--space-2));
+  left: var(--space-3);
+}
+
+.field-info-wrapper:hover .field-tooltip,
+.field-info-wrapper:focus-within .field-tooltip,
+.kpi-card-wrapper:hover .kpi-tooltip,
+.kpi-card-wrapper:focus-within .kpi-tooltip {
+  opacity: 1;
+  transform: translateY(0);
+  visibility: visible;
+}
+
+.dash-table-container {
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  max-width: 100%;
+}
+
+.dash-table-container .dash-spreadsheet-menu {
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.dash-table-container .dash-filter input {
+  background: var(--color-surface) !important;
+  border: 0.0625rem solid var(--color-border-strong) !important;
+  border-radius: var(--radius-sm);
+  color: var(--color-text) !important;
+  min-height: 2rem;
+}
+
+.dash-table-container .dash-spreadsheet-inner tr:hover td {
+  background: var(--color-row-hover) !important;
+}
+
+#costs-table .dash-cell.cell--selected,
+#costs-table .dash-cell.focused {
+  color: var(--color-text) !important;
+}
+
+.dash-table-container .previous-next-container button {
+  background: var(--color-surface);
+  border: 0.0625rem solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  min-height: 2.25rem;
+  min-width: 2.25rem;
+}
+
+.dash-table-container .previous-next-container button:hover:not(:disabled) {
+  background: var(--color-surface-soft);
+  border-color: var(--color-primary);
+}
+
+.dash-table-container .previous-next-container button:disabled {
+  color: var(--color-text-muted);
+  opacity: 0.55;
+}
+
+.dash-table-container .page-number,
+.dash-table-container .current-page-container input {
+  color: var(--color-text) !important;
+}
+
+.dash-table-container .current-page-container input {
+  background: var(--color-surface) !important;
+  border-color: var(--color-border-strong) !important;
+}
+
+.dash-table-container .show-hide {
+  color: var(--color-primary);
+}
+
+.js-plotly-plot,
+.plot-container,
+.svg-container {
+  max-width: 100%;
+}
+
+.dash-graph {
+  background: var(--color-surface);
+  border: 0.0625rem solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.card .dash-graph {
+  border: 0;
+  border-radius: 0;
+}
+
+.js-plotly-plot .modebar {
+  background: var(--color-surface) !important;
+  border-radius: var(--radius-sm);
+}
+
+.js-plotly-plot .modebar-btn path {
+  fill: var(--color-text-muted) !important;
+}
+
+.js-plotly-plot .modebar-btn:hover path,
+.js-plotly-plot .modebar-btn.active path {
+  fill: var(--color-primary) !important;
+}
+
+.costs-page-header {
+  align-items: flex-end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+}
+
+.cost-period-filters {
+  align-items: flex-end;
+  display: flex;
+  gap: var(--space-3);
+}
+
+.cost-period-year {
+  width: 7rem;
+}
+
+.cost-period-month {
+  width: 11rem;
+}
+
+details > summary {
+  color: var(--color-text);
+  cursor: pointer;
+  font-weight: 650;
+  min-height: 2.75rem;
+  padding-block: var(--space-2);
+}
+
+details > summary:hover {
+  color: var(--color-primary);
+}

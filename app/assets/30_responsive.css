@@ -1,0 +1,143 @@
+@media (max-width: 64rem) {
+  :root {
+    --sidebar-width: 14.5rem;
+  }
+
+  .sidebar {
+    padding: var(--space-5);
+  }
+
+  .content {
+    padding: var(--space-6);
+  }
+
+  .card-body {
+    padding: var(--space-4);
+  }
+}
+
+@media (max-width: 48rem) {
+  html {
+    min-width: 0;
+  }
+
+  .app-shell {
+    display: block;
+  }
+
+  .sidebar {
+    border-bottom: 0.0625rem solid var(--color-border);
+    border-right: 0;
+    gap: var(--space-4);
+    overflow: visible;
+    padding: var(--space-4);
+    position: static;
+    width: 100%;
+  }
+
+  .brand-header {
+    margin-bottom: 0 !important;
+  }
+
+  .theme-toggle {
+    bottom: auto;
+    left: auto;
+    max-width: 15rem;
+    position: static;
+  }
+
+  .sidebar .nav {
+    display: grid;
+    gap: var(--space-2);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .sidebar .nav-link {
+    justify-content: center;
+    padding-inline: var(--space-2);
+    text-align: center;
+  }
+
+  .content {
+    margin-left: 0;
+    padding: var(--space-5) var(--space-4);
+  }
+
+  .costs-page-header {
+    align-items: stretch;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .cost-period-filters {
+    width: 100%;
+  }
+
+  .cost-period-year,
+  .cost-period-month {
+    flex: 1 1 0;
+    min-width: 0;
+    width: auto;
+  }
+
+  .dash-table-container {
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+  }
+
+  .field-tooltip,
+  .kpi-tooltip {
+    left: 0;
+    right: auto;
+  }
+}
+
+@media (max-width: 30rem) {
+  .sidebar {
+    padding: var(--space-3);
+  }
+
+  .brand-logo {
+    height: 2.75rem;
+    width: 2.75rem;
+  }
+
+  .theme-toggle {
+    max-width: none;
+  }
+
+  .sidebar .nav {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .sidebar .nav-link {
+    font-size: 0.82rem;
+    min-height: 2.625rem;
+  }
+
+  .content {
+    padding: var(--space-4) var(--space-3);
+  }
+
+  h1,
+  .h3 {
+    font-size: 1.5rem;
+  }
+
+  .card-body {
+    padding: var(--space-3);
+  }
+
+  .cost-period-filters {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .revenue-split-row,
+  .cost-split-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0;
+  }
+}

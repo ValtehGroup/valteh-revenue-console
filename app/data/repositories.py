@@ -50,7 +50,7 @@ REQUIRED_COST_COLUMNS = {
 }
 OPTIONAL_COST_COLUMNS = {"id", "cost_key"}
 
-SUPPORTED_COST_TYPES = {"fixed", "variable", "one_time"}
+SUPPORTED_COST_TYPES = {"fixed", "variable"}
 SUPPORTED_CHARGE_BASES = {"flat", "per_user", "usage"}
 SUPPORTED_BILLING_FREQUENCIES = {"monthly", "annual", "usage", "once"}
 SUPPORTED_RECORD_TYPES = {"actual", "budget", "estimate"}
@@ -131,6 +131,15 @@ class SeedRepository:
         return [UsageEvent(**record) for record in records]
 
     def cost_items(self) -> list[CostItem]:
+        from app.data.cost_repository import CostRepository
+        from app.data.seed_data import ensure_cost_seeded
+
+        ensure_cost_seeded(self.data_path / "seed_costs.csv")
+        return sorted(CostRepository().list_costs(), key=lambda item: item.id)
+
+    def seed_cost_items(self) -> list[CostItem]:
+        """Parse and validate the reference CSV without touching runtime persistence."""
+
         df = pd.read_csv(self.data_path / "seed_costs.csv", dtype="string", keep_default_na=False)
         _validate_required_cost_columns(df)
         for column in OPTIONAL_COST_COLUMNS:
@@ -308,7 +317,7 @@ class SeedRepository:
             Decimal("0"),
         )
         fixed_cost = sum(
-            (cost.amount for cost in cost_amounts if cost.cost_type in {"fixed", "one_time"}),
+            (cost.amount for cost in cost_amounts if cost.cost_type == "fixed"),
             Decimal("0"),
         )
         gross_margin = calculate_gross_margin(revenue, variable_cost)
@@ -364,9 +373,18 @@ class SeedRepository:
             rows.append(
                 {
                     "month": month,
-                    "fixed": sum((cost.amount for cost in amounts if cost.cost_type == "fixed"), Decimal("0")),
+                    "fixed": sum(
+                        (
+                            cost.amount
+                            for cost in amounts
+                            if cost.cost_type == "fixed" and cost.billing_frequency != "once"
+                        ),
+                        Decimal("0"),
+                    ),
                     "variable": sum((cost.amount for cost in amounts if cost.cost_type == "variable"), Decimal("0")),
-                    "one_time": sum((cost.amount for cost in amounts if cost.cost_type == "one_time"), Decimal("0")),
+                    "one_time": sum(
+                        (cost.amount for cost in amounts if cost.billing_frequency == "once"), Decimal("0")
+                    ),
                     "total": sum((cost.amount for cost in amounts), Decimal("0")),
                 }
             )
@@ -427,6 +445,7 @@ def _normalize_cost_record(record: pd.Series, *, row_number: int) -> dict:
         row_number=row_number,
         column="billing_frequency",
     )
+    _validate_cost_frequency(normalized["cost_type"], normalized["billing_frequency"], row_number=row_number)
     normalized["record_type"] = _parse_supported_value(
         normalized["record_type"],
         SUPPORTED_RECORD_TYPES,
@@ -452,6 +471,8 @@ def _normalize_cost_record(record: pd.Series, *, row_number: int) -> dict:
     )
     normalized["unit_cost"] = convert_to_mxn(unit_cost, currency)
     normalized["currency"] = BASE_CURRENCY
+    normalized["entered_unit_cost"] = unit_cost
+    normalized["entered_currency"] = currency
     normalized["start_date"] = _parse_optional_iso_date(
         normalized["start_date"],
         row_number=row_number,
@@ -461,6 +482,13 @@ def _normalize_cost_record(record: pd.Series, *, row_number: int) -> dict:
     normalized["enabled"] = _parse_bool(normalized["enabled"], row_number=row_number, column="enabled")
     normalized["cost_key"] = normalized["cost_key"] or _derived_cost_key(normalized)
     return normalized
+
+
+def _validate_cost_frequency(cost_type: str, billing_frequency: str, *, row_number: int) -> None:
+    if cost_type == "variable" and billing_frequency != "usage":
+        raise ValueError(f"seed_costs.csv row {row_number} variable costs must use billing_frequency 'usage'")
+    if cost_type == "fixed" and billing_frequency == "usage":
+        raise ValueError(f"seed_costs.csv row {row_number} billing_frequency 'usage' requires cost_type 'variable'")
 
 
 def _blank_to_none(value):

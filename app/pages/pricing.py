@@ -7,6 +7,7 @@ import pandas as pd
 import plotly.express as px
 from dash import Input, Output, dcc, html
 
+from app.components.chart_theme import apply_chart_theme
 from app.components.forms import field_label, numeric_input
 from app.components.kpi_card import kpi_card
 from app.components.tables import data_table
@@ -189,7 +190,7 @@ def _simulator_controls(repo: SeedRepository, defaults: dict):
                 ),
             ]
         ),
-        className="border-0 shadow-sm mb-3",
+        className="content-card mb-3",
     )
 
 
@@ -261,7 +262,7 @@ def _simulation_content(values: dict):
                                     data_table("pricing-split-table", _split_rows(result), 7),
                                 ]
                             ),
-                            className="border-0 shadow-sm h-100",
+                            className="content-card h-100",
                         ),
                         md=5,
                     ),
@@ -340,7 +341,7 @@ def _sensitivity_chart(rows: list[dict]):
     )
     fig.update_layout(margin=dict(l=20, r=20, t=50, b=20), xaxis_title="Usage multiplier", legend_title="")
     fig.update_yaxes(title="MXN", tickprefix="$", separatethousands=True)
-    return fig
+    return apply_chart_theme(fig)
 
 
 def _split_rows(result) -> list[dict]:
