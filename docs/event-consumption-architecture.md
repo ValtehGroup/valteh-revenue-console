@@ -74,6 +74,11 @@ This system is responsible for:
 - Producing billing inputs and invoice-ready summaries.
 - Producing internal and client-facing economic analytics.
 
+Client identity resolution uses the pair `(source_system, client_reference)` and the
+`client_external_references` table. API credentials authenticate a source connection;
+they never identify a client. Raw imported events remain stored when no mapping exists,
+so a reference added later can resolve and classify those events without re-ingestion.
+
 All economic interpretation must happen here.
 
 ## 3. Proposed Local Data Model

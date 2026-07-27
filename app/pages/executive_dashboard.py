@@ -144,13 +144,32 @@ def _dashboard_content(month: str):
             ),
             dbc.Row(
                 [
-                    dbc.Col(dcc.Graph(figure=pie_chart(revenue_by_service, "Revenue by Service Line")), md=4),
-                    dbc.Col(dcc.Graph(figure=bar_chart(cost_by_service, "Cost by Service Line")), md=4),
+                    dbc.Col(
+                        dcc.Graph(
+                            figure=pie_chart(
+                                revenue_by_service,
+                                "Revenue by Service Line",
+                                default_plotly_colors=True,
+                            )
+                        ),
+                        md=4,
+                    ),
+                    dbc.Col(
+                        dcc.Graph(
+                            figure=bar_chart(
+                                cost_by_service,
+                                "Cost by Service Line",
+                                default_plotly_colors=True,
+                            )
+                        ),
+                        md=4,
+                    ),
                     dbc.Col(
                         dcc.Graph(
                             figure=bar_chart(
                                 _margin_by_service(revenue_by_service, cost_by_service),
                                 "Margin by Service Line",
+                                default_plotly_colors=True,
                             )
                         ),
                         md=4,
@@ -160,8 +179,26 @@ def _dashboard_content(month: str):
             ),
             dbc.Row(
                 [
-                    dbc.Col(dcc.Graph(figure=bar_chart(cost_by_provider, "Costs by Provider")), md=6),
-                    dbc.Col(dcc.Graph(figure=bar_chart(cost_by_category, "Costs by Category")), md=6),
+                    dbc.Col(
+                        dcc.Graph(
+                            figure=bar_chart(
+                                cost_by_provider,
+                                "Costs by Provider",
+                                default_plotly_colors=True,
+                            )
+                        ),
+                        md=6,
+                    ),
+                    dbc.Col(
+                        dcc.Graph(
+                            figure=bar_chart(
+                                cost_by_category,
+                                "Costs by Category",
+                                default_plotly_colors=True,
+                            )
+                        ),
+                        md=6,
+                    ),
                 ],
                 className="mb-4",
             ),
@@ -279,7 +316,9 @@ def _display_rows(rows: list[dict]) -> list[dict]:
 
 def _average_document_price(repo: SeedRepository, month: str) -> Decimal:
     active_plans = [repo.active_plan_for_client_month(client.id, month) for client in repo.active_clients(month)]
-    document_prices = [Decimal(str(plan.price_per_document)) for plan in active_plans if plan.price_per_document > 0]
+    document_prices = [
+        Decimal(str(plan.price_per_document)) for plan in active_plans if plan and plan.price_per_document > 0
+    ]
     if not document_prices:
         document_prices = [
             Decimal(str(plan.price_per_document)) for plan in repo.pricing_plans() if plan.price_per_document > 0

@@ -170,3 +170,29 @@ def test_sync_error_is_recorded_on_cursor() -> None:
     cursor_row = session.get(EventImportCursorORM, "baas-qro")
     assert cursor_row.status == "error"
     assert cursor_row.error_message == "source down"
+
+
+def test_unknown_client_reference_is_retained_as_raw_event() -> None:
+    session = _make_session()
+    event = _event("unresolved", datetime(2026, 5, 1)).model_copy(
+        update={"client_reference": "unknown-tenant"}
+    )
+    source = FakeSource(
+        {
+            None: OperationalEventPage(
+                data=[event],
+                pagination=OperationalEventPagination(has_more=False),
+            )
+        }
+    )
+
+    result = sync_source(session, source)
+    stored = session.scalar(
+        select(ImportedOperationalEventORM).where(
+            ImportedOperationalEventORM.source_event_id == "unresolved"
+        )
+    )
+
+    assert result.imported == 1
+    assert stored.source_client_ref == "unknown-tenant"
+    assert stored.raw_payload_json is not None

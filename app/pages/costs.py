@@ -8,7 +8,7 @@ import pandas as pd
 import plotly.express as px
 from dash import ALL, Input, Output, State, ctx, dcc, html, no_update
 
-from app.components.chart_theme import apply_chart_theme, chart_colorway
+from app.components.chart_theme import DEFAULT_PLOTLY_COLORWAY, apply_chart_theme
 from app.components.charts import bar_chart
 from app.components.tables import data_table, table_data_styles
 from app.data.cost_repository import (
@@ -45,6 +45,8 @@ def layout():
                                         options=_year_options(available_months),
                                         value=selected_year,
                                         clearable=False,
+                                        persistence=True,
+                                        persistence_type="session",
                                     ),
                                 ],
                                 className="cost-period-year",
@@ -57,6 +59,8 @@ def layout():
                                         options=_month_options(available_months, selected_year),
                                         value=selected_month,
                                         clearable=False,
+                                        persistence=True,
+                                        persistence_type="session",
                                     ),
                                 ],
                                 className="cost-period-month",
@@ -95,6 +99,8 @@ def layout():
                                         ],
                                         value="all",
                                         clearable=False,
+                                        persistence=True,
+                                        persistence_type="session",
                                     ),
                                 ],
                                 style={"minWidth": "10rem"},
@@ -846,7 +852,6 @@ def _year_cost_chart(rows: list[dict], year: int):
     ]
 
     frame = pd.DataFrame(chart_rows, columns=["month", "cost_type", "amount"])
-    colorway = chart_colorway()
     figure = px.bar(
         frame,
         x="month",
@@ -855,7 +860,7 @@ def _year_cost_chart(rows: list[dict], year: int):
         barmode="stack",
         title=f"Monthly Costs in {year}",
         labels={"amount": "Cost (MXN)", "month": "", "cost_type": "Cost type"},
-        color_discrete_map={"Fixed + one-time": colorway[0], "Variable": colorway[1]},
+        color_discrete_sequence=DEFAULT_PLOTLY_COLORWAY,
     )
     figure.update_layout(
         legend_title_text="",
@@ -865,4 +870,4 @@ def _year_cost_chart(rows: list[dict], year: int):
     figure.update_traces(hovertemplate="<b>%{fullData.name}</b><br>%{x}<br>$%{y:,.2f} MXN<extra></extra>")
     figure.update_xaxes(type="category", tickformat="%Y-%m")
     figure.update_yaxes(tickprefix="$", separatethousands=True)
-    return apply_chart_theme(figure)
+    return apply_chart_theme(figure, colorway=DEFAULT_PLOTLY_COLORWAY)

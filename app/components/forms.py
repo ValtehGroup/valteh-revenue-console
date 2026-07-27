@@ -12,7 +12,14 @@ def numeric_input(
     return dbc.Col(
         [
             field_label(label, component_id, tooltip),
-            dbc.Input(id=component_id, type="number", value=value, step=step),
+            dbc.Input(
+                id=component_id,
+                type="number",
+                value=value,
+                step=step,
+                persistence=True,
+                persistence_type="session",
+            ),
         ],
         md=3,
     )

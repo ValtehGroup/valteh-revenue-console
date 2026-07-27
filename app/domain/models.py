@@ -7,11 +7,31 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 class Client(BaseModel):
     id: int
+    client_code: str = Field(pattern=r"^(?:client|test)_\d{4,}$", frozen=True)
     name: str
     client_type: str
-    status: str
+    status: Literal["active", "inactive"]
     start_date: date
+    end_date: date | None = None
     notes: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def validate_client_lifecycle(self) -> "Client":
+        if self.end_date and self.end_date < self.start_date:
+            raise ValueError("end_date must be on or after start_date")
+        return self
+
+
+class ClientExternalReference(BaseModel):
+    id: int
+    client_id: int
+    source_system: str
+    external_client_reference: str
+    enabled: bool = True
+    created_at: datetime
+    updated_at: datetime
 
 
 class Service(BaseModel):

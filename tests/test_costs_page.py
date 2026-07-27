@@ -1,5 +1,6 @@
 from decimal import Decimal
 
+from app.components.chart_theme import DEFAULT_PLOTLY_COLORWAY
 from app.components.tables import data_table
 from app.data.repositories import SeedRepository
 from app.main import create_app
@@ -59,6 +60,8 @@ def test_year_chart_stacks_fixed_and_variable_monthly_costs() -> None:
     assert figure.layout.xaxis.type == "category"
     assert figure.layout.xaxis.tickformat == "%Y-%m"
     assert all("%{fullData.name}" in trace.hovertemplate for trace in figure.data)
+    assert [trace.marker.color for trace in figure.data] == DEFAULT_PLOTLY_COLORWAY[:2]
+    assert list(figure.layout.template.layout.colorway) == DEFAULT_PLOTLY_COLORWAY
 
 
 def test_month_options_are_limited_to_selected_available_year() -> None:

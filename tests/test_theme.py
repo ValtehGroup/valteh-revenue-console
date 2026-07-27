@@ -3,7 +3,13 @@ from pathlib import Path
 
 from dash.development.base_component import Component
 
-from app.components.chart_theme import PLOTLY_THEME, apply_chart_theme, plotly_template
+from app.components.chart_theme import (
+    DEFAULT_PLOTLY_COLORWAY,
+    PLOTLY_THEME,
+    apply_chart_theme,
+    plotly_template,
+)
+from app.components.charts import bar_chart, pie_chart
 from app.layout import app_layout
 from app.main import create_app
 from app.theme import THEME_INDEX_STRING, normalize_theme
@@ -138,6 +144,16 @@ def test_apply_chart_theme_normalizes_unknown_theme() -> None:
 
     assert template_layout.font.color == PLOTLY_THEME["light"]["text"]
     assert list(template_layout.colorway) == PLOTLY_THEME["light"]["colorway"]
+
+
+def test_charts_can_keep_plotly_default_colors_with_theme_aware_layout() -> None:
+    bar = bar_chart({"SAREMI": 1}, "Bar", default_plotly_colors=True)
+    pie = pie_chart({"SAREMI": 1, "Graphos": 2}, "Pie", default_plotly_colors=True)
+
+    assert bar.data[0].marker.color == DEFAULT_PLOTLY_COLORWAY[0]
+    assert list(bar.layout.template.layout.colorway) == DEFAULT_PLOTLY_COLORWAY
+    assert list(pie.layout.template.layout.colorway) == DEFAULT_PLOTLY_COLORWAY
+    assert pie.layout.template.layout.paper_bgcolor == "rgba(0,0,0,0)"
 
 
 def test_plotly_template_uses_theme_cookie_during_callbacks() -> None:

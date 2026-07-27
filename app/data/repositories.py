@@ -8,6 +8,7 @@ from datetime import date
 from decimal import Decimal
 
 import pandas as pd
+from sqlalchemy import select
 
 from app.config import BASE_DIR, get_settings
 from app.domain.cost_engine import calculate_variable_cost, is_cost_effective, monthly_cost_amounts
@@ -68,9 +69,9 @@ class SeedRepository:
         self.data_path = settings.seed_data_dir if self.data_dir is None else BASE_DIR / self.data_dir
 
     def clients(self) -> list[Client]:
-        df = pd.read_csv(self.data_path / "seed_clients.csv")
-        df["start_date"] = _parse_dates(df["start_date"])
-        return [Client(**_date_record(record, ["start_date"])) for record in df.to_dict("records")]
+        from app.data.client_repository import ClientRepository
+
+        return sorted(ClientRepository().list_clients(), key=lambda client: client.id)
 
     def services(self) -> list[Service]:
         return [
@@ -105,21 +106,30 @@ class SeedRepository:
         ]
 
     def pricing_plans(self) -> list[PricingPlan]:
-        df = pd.read_csv(self.data_path / "seed_pricing_plans.csv")
-        return [PricingPlan(**record) for record in df.to_dict("records")]
+        from app.data.database import SessionLocal
+        from app.data.schemas import PricingPlanORM
+
+        with SessionLocal() as session:
+            rows = session.scalars(select(PricingPlanORM).order_by(PricingPlanORM.id)).all()
+            return [
+                PricingPlan.model_validate(
+                    {column.name: getattr(row, column.name) for column in PricingPlanORM.__table__.columns}
+                )
+                for row in rows
+            ]
 
     def subscriptions(self) -> list[ClientSubscription]:
-        df = pd.read_csv(self.data_path / "seed_client_subscriptions.csv")
-        df["start_date"] = _parse_dates(df["start_date"])
-        df["end_date"] = _parse_dates(df["end_date"])
-        records = []
-        for record in df.to_dict("records"):
-            record = _date_record(record, ["start_date", "end_date"])
-            for key in ["end_date", "notes"]:
-                if pd.isna(record.get(key)):
-                    record[key] = None
-            records.append(record)
-        return [ClientSubscription(**record) for record in records]
+        from app.data.database import SessionLocal
+        from app.data.schemas import ClientSubscriptionORM
+
+        with SessionLocal() as session:
+            rows = session.scalars(select(ClientSubscriptionORM).order_by(ClientSubscriptionORM.id)).all()
+            return [
+                ClientSubscription.model_validate(
+                    {column.name: getattr(row, column.name) for column in ClientSubscriptionORM.__table__.columns}
+                )
+                for row in rows
+            ]
 
     def usage_events(self) -> list[UsageEvent]:
         df = pd.read_csv(self.data_path / "seed_usage.csv", parse_dates=["event_timestamp"])
@@ -156,8 +166,10 @@ class SeedRepository:
         event_id = 1
         for month in self.available_months():
             for client in self.active_clients(month):
-                plan = self.active_plan_for_client_month(client.id, month)
                 subscription = self.active_subscription_for_client_month(client.id, month)
+                plan = self.active_plan_for_client_month(client.id, month)
+                if plan is None or subscription is None:
+                    continue
                 usage = self.usage_for_client_month(client.id, month)
                 period_month = pd.Timestamp(f"{month}-01").date()
                 subscription_amount = calculate_subscription_revenue(plan, subscription, period_month)
@@ -196,27 +208,24 @@ class SeedRepository:
 
     def active_clients(self, month: str) -> list[Client]:
         month_start = pd.Timestamp(f"{month}-01").date()
-        active_client_ids = {
-            subscription.client_id
-            for subscription in self.subscriptions()
-            if subscription.status == "active"
-            and subscription.start_date <= month_start
-            and (subscription.end_date is None or subscription.end_date >= month_start)
-        }
         return [
             client
             for client in self.clients()
-            if client.id in active_client_ids and client.status == "active" and client.start_date <= month_start
+            if client.start_date <= month_start
+            and (
+                (client.end_date is not None and client.end_date >= month_start)
+                or (client.end_date is None and client.status == "active")
+            )
         ]
 
-    def active_plan_for_client(self, client_id: int) -> PricingPlan:
+    def active_plan_for_client(self, client_id: int) -> PricingPlan | None:
         return self.active_plan_for_client_month(client_id, self.available_months()[-1])
 
-    def active_plan_for_client_month(self, client_id: int, month: str) -> PricingPlan:
+    def active_plan_for_client_month(self, client_id: int, month: str) -> PricingPlan | None:
         subscription = self.active_subscription_for_client_month(client_id, month)
         if subscription is None:
-            raise ValueError(f"Client {client_id} has no active subscription in {month}")
-        return next(plan for plan in self.pricing_plans() if plan.id == subscription.pricing_plan_id)
+            return None
+        return next((plan for plan in self.pricing_plans() if plan.id == subscription.pricing_plan_id), None)
 
     def active_subscription_for_client_month(self, client_id: int, month: str) -> ClientSubscription | None:
         if client_id not in {client.id for client in self.active_clients(month)}:
@@ -227,9 +236,24 @@ class SeedRepository:
                 sub
                 for sub in self.subscriptions()
                 if sub.client_id == client_id
-                and sub.status == "active"
+                and (sub.status == "active" or sub.end_date is not None)
                 and sub.start_date <= month_start
                 and (sub.end_date is None or sub.end_date >= month_start)
+            ),
+            None,
+        )
+
+    def subscription_for_client_month(self, client_id: int, month: str) -> ClientSubscription | None:
+        """Return the subscription effective in a historical month, regardless of current client status."""
+
+        month_start = pd.Timestamp(f"{month}-01").date()
+        return next(
+            (
+                subscription
+                for subscription in self.subscriptions()
+                if subscription.client_id == client_id
+                and subscription.start_date <= month_start
+                and (subscription.end_date is None or subscription.end_date >= month_start)
             ),
             None,
         )
@@ -252,6 +276,15 @@ class SeedRepository:
 
     def usage_for_client_month(self, client_id: int, month: str) -> list[UsageEvent]:
         return [event for event in self.usage_for_month(month) if event.client_id == client_id]
+
+    def usage_history_for_client_month(self, client_id: int, month: str) -> list[UsageEvent]:
+        """Return recorded usage without applying the current active-client filter."""
+
+        return [
+            event
+            for event in self.usage_events()
+            if event.client_id == client_id and event.event_timestamp.strftime("%Y-%m") == month
+        ]
 
     def cost_rates(self, as_of: date | None = None) -> dict[str, Decimal]:
         as_of = as_of or date.today()
@@ -336,9 +369,13 @@ class SeedRepository:
         for client in self.active_clients(month):
             plan = self.active_plan_for_client_month(client.id, month)
             subscription = self.active_subscription_for_client_month(client.id, month)
+            if plan is None or subscription is None:
+                continue
             totals["SIGEN"] += calculate_subscription_revenue(plan, subscription, pd.Timestamp(f"{month}-01").date())
         for client in self.active_clients(month):
             plan = self.active_plan_for_client_month(client.id, month)
+            if plan is None:
+                continue
             for event in self.usage_for_client_month(client.id, month):
                 if event.event_type.startswith("saremi"):
                     totals["SAREMI"] += _event_revenue(event.event_type, event.quantity, plan)

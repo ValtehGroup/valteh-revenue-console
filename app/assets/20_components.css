@@ -215,7 +215,8 @@
 }
 
 .scenario-summary-base {
-  background: var(--color-info-bg);
+  background: var(--color-scenario-base-bg);
+  border-color: var(--color-scenario-base-border) !important;
 }
 
 .scenario-summary-pessimistic {
