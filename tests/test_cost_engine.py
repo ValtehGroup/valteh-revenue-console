@@ -57,7 +57,7 @@ def test_calculate_variable_cost() -> None:
     assert calculate_variable_cost(usage, rates) == Decimal("70.00")
 
 
-def test_calculate_fixed_costs_includes_one_time_cost_only_in_matching_month() -> None:
+def test_calculate_fixed_costs_includes_once_frequency_only_in_matching_month() -> None:
     costs = [
         _cost(),
         _cost(
@@ -65,7 +65,7 @@ def test_calculate_fixed_costs_includes_one_time_cost_only_in_matching_month() -
             cost_key="software.domain",
             name="Domain purchase",
             category="Software",
-            cost_type="one_time",
+            cost_type="fixed",
             charge_basis="flat",
             quantity=Decimal("1"),
             unit_cost=Decimal("1000"),
@@ -192,6 +192,7 @@ def test_usage_cost_sums_multiple_cost_components_for_same_event_type() -> None:
             id=1,
             cost_type="variable",
             charge_basis="usage",
+            billing_frequency="usage",
             unit="saremi.document_validation",
             unit_cost=Decimal("1"),
         ),
@@ -200,6 +201,7 @@ def test_usage_cost_sums_multiple_cost_components_for_same_event_type() -> None:
             cost_key="ai.preprocessing",
             cost_type="variable",
             charge_basis="usage",
+            billing_frequency="usage",
             unit="saremi.document_validation",
             unit_cost=Decimal("0.05"),
         ),

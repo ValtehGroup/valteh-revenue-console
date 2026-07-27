@@ -20,17 +20,23 @@ def numeric_input(
 
 def field_label(label: str, component_id: str, tooltip: str | None = None) -> html.Div:
     if not tooltip:
-        return html.Div(label, className="form-label")
+        return html.Label(label, className="form-label", htmlFor=component_id)
     tooltip_id = f"{component_id}-info-tooltip"
     return html.Div(
         [
-            html.Span(label),
+            html.Label(label, className="form-label mb-0", htmlFor=component_id),
             html.Span(
                 [
-                    html.Span("i", className="field-info-icon", **{"aria-label": "Information"}),
+                    html.Span(
+                        "i",
+                        className="field-info-icon",
+                        **{"aria-hidden": "true"},
+                    ),
                     html.Span(tooltip, className="field-tooltip", id=tooltip_id, role="tooltip"),
                 ],
                 className="field-info-wrapper",
+                tabIndex=0,
+                **{"aria-label": f"Information about {label}"},
                 **{"aria-describedby": tooltip_id},
             ),
         ],

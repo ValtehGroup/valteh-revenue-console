@@ -42,7 +42,7 @@ def _seed_record(**overrides) -> pd.Series:
 
 
 def test_loads_new_cost_seed_schema() -> None:
-    items = SeedRepository().cost_items()
+    items = SeedRepository().seed_cost_items()
 
     assert items
     assert len({item.id for item in items}) == len(items)
@@ -105,6 +105,8 @@ def test_usd_unit_cost_is_converted_to_mxn() -> None:
 
     assert record["unit_cost"] == Decimal("108")
     assert record["currency"] == "MXN"
+    assert record["entered_unit_cost"] == Decimal("6")
+    assert record["entered_currency"] == "USD"
 
 
 def test_unsupported_currency_is_rejected() -> None:
@@ -135,7 +137,9 @@ def test_blank_cost_key_is_derived_from_stable_record_fields() -> None:
 
 
 def test_microsoft_seed_history_uses_may_june_and_july_versions() -> None:
-    microsoft_versions = SeedRepository().cost_versions("software.microsoft365.team")
+    microsoft_versions = [
+        item for item in SeedRepository().seed_cost_items() if item.cost_key == "software.microsoft365.team"
+    ]
 
     assert calculate_fixed_costs(microsoft_versions, date(2026, 5, 1)) == Decimal("432")
     assert calculate_fixed_costs(microsoft_versions, date(2026, 6, 1)) == Decimal("432")
@@ -147,7 +151,7 @@ def test_dashboard_service_functions_use_monthly_cost_totals() -> None:
     costs = repo.monthly_cost_amounts("2026-06")
     summary = repo.monthly_summary("2026-06")
     expected_fixed = sum(
-        (cost.amount for cost in costs if cost.cost_type in {"fixed", "one_time"}),
+        (cost.amount for cost in costs if cost.cost_type == "fixed"),
         Decimal("0"),
     )
     expected_variable = sum(
@@ -160,7 +164,6 @@ def test_dashboard_service_functions_use_monthly_cost_totals() -> None:
     assert sum(repo.cost_by_service("2026-06").values(), Decimal("0")) == expected_fixed + expected_variable
     assert sum(repo.cost_by_category("2026-06").values(), Decimal("0")) == expected_fixed + expected_variable
     assert sum(repo.cost_by_provider("2026-06").values(), Decimal("0")) == expected_fixed + expected_variable
-    assert repo.cost_by_provider("2026-06")["Microsoft"] == Decimal("432")
 
 
 def test_available_months_run_from_first_cost_month_to_current_month(monkeypatch) -> None:

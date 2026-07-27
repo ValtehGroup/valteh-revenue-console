@@ -4,8 +4,8 @@
 ,software.microsoft365.team,Microsoft 365 team subscription,Microsoft,Software,Shared,fixed,per_user,4,6,user-month,monthly,01/05/2026,30/06/2026,USD,actual,TRUE,Original two-user subscription rate
 ,software.microsoft365.team,Microsoft 365 team subscription,Microsoft,Software,Shared,fixed,per_user,4,8,user-month,monthly,01/07/2026,,USD,actual,TRUE,July price increase and one additional user
 ,software.github.enterprise,Github enterprise subscription,Github,Software,Shared,fixed,per_user,4,4,user-month,monthly,01/07/2026,,USD,actual,TRUE,1 Admin and 3 users
-,software.valteh_domain_purchase,valteh.com domain purchase,Domain Registry,Software,Shared,one_time,flat,1,1000,payment,once,15/05/2026,15/05/2029,MXN,actual,TRUE,Initial domain purchase (3-year)
-,,SAREMI domain purchase,Namecheap,Software,Shared,one_time,flat,1,35,payment,once,23/07/2026,23/07/2027,USD,actual,TRUE,Initial domain purchase (1-year)
+,software.valteh_domain_purchase,valteh.com domain purchase,Domain Registry,Software,Shared,fixed,flat,1,1000,payment,once,15/05/2026,15/05/2029,MXN,actual,TRUE,Initial domain purchase (3-year)
+,,SAREMI domain purchase,Namecheap,Software,Shared,fixed,flat,1,35,payment,once,23/07/2026,23/07/2027,USD,actual,TRUE,Initial domain purchase (1-year)
 ,software.claude.anthropic,Claude Anthropic Subscription,Anthropic,Software,Shared,fixed,flat,1,17,month,monthly,01/04/2026,,USD,actual,TRUE,Monthly base subscription
 ,ai.claude.document_analysis,Claude document analysis,Anthropic,AI,SAREMI,variable,usage,1,1,saremi.document_validation,usage,01/04/2026,,MXN,actual,TRUE,Variable rate per document validation
 ,ai.local.document_preprocessing,Local document preprocessing,SAREMI,AI,SAREMI,variable,usage,1,0.05,saremi.document_validation,usage,01/04/2026,,MXN,actual,TRUE,Local preprocessing component

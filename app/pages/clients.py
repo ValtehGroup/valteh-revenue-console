@@ -20,7 +20,7 @@ def layout():
             html.P("Client status, economics, usage, and margin alerts.", className="text-muted"),
             dbc.Card(
                 dbc.CardBody(data_table("clients-table", rows, 10)),
-                className="border-0 shadow-sm mb-4",
+                className="content-card mb-4",
             ),
             detail_section(repo, repo.clients()),
         ]

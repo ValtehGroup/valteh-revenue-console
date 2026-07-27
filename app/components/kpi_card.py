@@ -15,12 +15,12 @@ def kpi_card(
     card = dbc.Card(
         dbc.CardBody(
             [
-                html.Div(title, className="text-muted small text-uppercase"),
-                html.Div(value, className=f"h3 mb-1 text-{color}"),
-                html.Div(subtitle or "", className="small text-muted"),
+                html.Div(title, className="kpi-label"),
+                html.Div(value, className=f"kpi-value kpi-value--{color}"),
+                html.Div(subtitle or "", className="kpi-subtitle"),
             ]
         ),
-        className="shadow-sm border-0 h-100",
+        className="kpi-card h-100",
     )
     children = [card]
     if tooltip:

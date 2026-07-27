@@ -5,6 +5,7 @@ import pandas as pd
 import plotly.express as px
 from dash import dcc, html
 
+from app.components.chart_theme import apply_chart_theme
 from app.components.tables import data_table
 from app.data.repositories import SeedRepository
 from app.domain.scenario_forecast import ScenarioMonth, forecast_scenarios
@@ -59,7 +60,7 @@ def _assumption_summary(latest_month: str) -> dbc.Alert:
             ),
         ],
         color="light",
-        className="border mb-4",
+        className="mb-4",
     )
 
 
@@ -90,7 +91,7 @@ def _scenario_kpis(forecast: list[ScenarioMonth]) -> dbc.Row:
                             html.Div(f"{row.clients} clients in {final_month}", className="small text-muted mt-1"),
                         ]
                     ),
-                    className=f"scenario-summary-card scenario-summary-{row.scenario.lower()} shadow-sm border-0 h-100",
+                    className=f"scenario-summary-card scenario-summary-{row.scenario.lower()} h-100",
                 ),
                 md=4,
             )
@@ -108,7 +109,7 @@ def _line_chart(forecast: list[ScenarioMonth], metric: str, title: str):
         fig.update_yaxes(title="MXN", tickprefix="$", separatethousands=True)
     else:
         fig.update_yaxes(title="Clients")
-    return fig
+    return apply_chart_theme(fig)
 
 
 def _forecast_frame(forecast: list[ScenarioMonth]) -> pd.DataFrame:

@@ -3,9 +3,11 @@ from decimal import Decimal
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Date,
     DateTime,
     ForeignKey,
+    Index,
     Numeric,
     String,
     Text,
@@ -88,6 +90,19 @@ class UsageEventORM(Base):
 
 class CostItemORM(Base):
     __tablename__ = "cost_items"
+    __table_args__ = (
+        CheckConstraint("quantity >= 0", name="ck_cost_items_quantity_non_negative"),
+        CheckConstraint("unit_cost >= 0", name="ck_cost_items_unit_cost_non_negative"),
+        CheckConstraint("entered_unit_cost >= 0", name="ck_cost_items_entered_unit_cost_non_negative"),
+        CheckConstraint("end_date IS NULL OR start_date IS NULL OR end_date >= start_date", name="ck_cost_items_dates"),
+        CheckConstraint(
+            "(cost_type = 'variable' AND billing_frequency = 'usage') OR "
+            "(cost_type = 'fixed' AND billing_frequency IN ('monthly', 'annual', 'once'))",
+            name="ck_cost_items_type_frequency",
+        ),
+        Index("ix_cost_items_enabled_record_type", "enabled", "record_type"),
+        Index("ix_cost_items_effective_dates", "start_date", "end_date"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     cost_key: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
@@ -99,14 +114,18 @@ class CostItemORM(Base):
     charge_basis: Mapped[str] = mapped_column(String(80), nullable=False)
     quantity: Mapped[Decimal] = mapped_column(Numeric(18, 6), default=1)
     unit_cost: Mapped[Decimal] = mapped_column(Numeric(12, 6), default=0)
+    entered_unit_cost: Mapped[Decimal] = mapped_column(Numeric(12, 6), nullable=False)
     unit: Mapped[str] = mapped_column(String(80), nullable=False)
     billing_frequency: Mapped[str] = mapped_column(String(40), nullable=False)
     start_date: Mapped[date | None] = mapped_column(Date)
     end_date: Mapped[date | None] = mapped_column(Date)
     currency: Mapped[str] = mapped_column(String(3), default="MXN")
+    entered_currency: Mapped[str] = mapped_column(String(3), nullable=False)
     record_type: Mapped[str] = mapped_column(String(40), default="actual")
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
 
 
 class RevenueEventORM(Base):

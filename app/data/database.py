@@ -15,6 +15,17 @@ def init_db() -> None:
     Base.metadata.create_all(bind=engine)
 
 
+def migrate_db() -> None:
+    """Apply versioned schema changes using the configured database URL."""
+
+    from alembic import command
+    from alembic.config import Config
+
+    config = Config(str(__import__("pathlib").Path(__file__).resolve().parents[2] / "alembic.ini"))
+    config.set_main_option("sqlalchemy.url", settings.database_url.replace("%", "%%"))
+    command.upgrade(config, "head")
+
+
 def get_session() -> Generator[Session, None, None]:
     session = SessionLocal()
     try:

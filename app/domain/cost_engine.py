@@ -20,6 +20,7 @@ class CostAmount:
     charge_basis: str
     quantity: Decimal
     unit_cost: Decimal
+    currency: str
     unit: str
     billing_frequency: str
     start_date: date | None
@@ -86,7 +87,7 @@ def calculate_fixed_costs(cost_items: Iterable[CostItem], month: date | None = N
             for item in resolve_effective_cost_items(
                 cost_items,
                 month,
-                cost_types={"fixed", "one_time"},
+                cost_types={"fixed"},
                 month_scope=True,
             )
         ),
@@ -103,7 +104,7 @@ def monthly_cost_amounts(
 
     items = list(cost_items)
     amounts: list[CostAmount] = []
-    for item in resolve_effective_cost_items(items, month, cost_types={"fixed", "one_time"}, month_scope=True):
+    for item in resolve_effective_cost_items(items, month, cost_types={"fixed"}, month_scope=True):
         amount = _fixed_cost_for_month(item, month)
         if amount:
             amounts.append(_cost_amount(item, amount))
@@ -130,12 +131,11 @@ def monthly_cost_amounts(
 def _fixed_cost_for_month(item: CostItem, month: date) -> Decimal:
     if item.record_type != "actual" or not is_cost_effective(item, month, month_scope=True):
         return Decimal("0")
-    if item.cost_type == "fixed":
-        if item.billing_frequency == "monthly":
-            return money(item.configured_amount)
-        if item.billing_frequency == "annual" and item.start_date and item.start_date.month == month.month:
-            return money(item.configured_amount)
-    if item.cost_type == "one_time" and item.start_date:
+    if item.billing_frequency == "monthly":
+        return money(item.configured_amount)
+    if item.billing_frequency == "annual" and item.start_date and item.start_date.month == month.month:
+        return money(item.configured_amount)
+    if item.billing_frequency == "once" and item.start_date:
         if item.start_date.year == month.year and item.start_date.month == month.month:
             return money(item.configured_amount)
     return Decimal("0")
@@ -189,7 +189,8 @@ def _cost_amount(item: CostItem, amount: Decimal) -> CostAmount:
         cost_type=item.cost_type,
         charge_basis=item.charge_basis,
         quantity=item.quantity,
-        unit_cost=item.unit_cost,
+        unit_cost=item.display_unit_cost,
+        currency=item.display_currency,
         unit=item.unit,
         billing_frequency=item.billing_frequency,
         start_date=item.start_date,
