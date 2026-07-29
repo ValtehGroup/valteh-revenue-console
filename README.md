@@ -244,6 +244,42 @@ migrations/               Reserved for Alembic migrations
 4. Add pricing fields or event mapping in `app/domain/revenue_engine.py` if the service has billable units.
 5. Add charts or tables in the relevant page module if the service needs custom display.
 
+## Revenue API (Read-Only)
+
+The app also exposes a small JSON API alongside the Dash UI, mounted on the same Flask
+server (`app/api/routes.py`, blueprint prefix `/api/v1`). It wraps the existing
+`SeedRepository` and `ClientRepository` calculations — no new business logic — so the
+holding's other systems (or a future standalone frontend) can query revenue, cost, and
+client-profitability figures without going through the dashboard.
+
+| Endpoint | Description |
+|---|---|
+| `GET /api/v1/health` | Liveness check. |
+| `GET /api/v1/months` | Months with known cost or usage data. |
+| `GET /api/v1/summary?month=YYYY-MM` | Revenue, costs, margins, and burn rate for a month. |
+| `GET /api/v1/revenue/split?month=YYYY-MM` | Subscription vs. usage revenue totals. |
+| `GET /api/v1/revenue/by-service?month=YYYY-MM` | Revenue grouped by service line. |
+| `GET /api/v1/usage?month=YYYY-MM&client_id=<id>` | Raw usage events (both filters optional), same rows as the Usage page. |
+| `GET /api/v1/clients/<id>/usage?month=YYYY-MM` | Usage events for one client in a month. |
+| `GET /api/v1/costs/history` | Fixed/variable/one-time cost totals per month. |
+| `GET /api/v1/costs/by-service` \| `by-provider` \| `by-category` `?month=YYYY-MM` | Cost breakdowns. |
+| `GET /api/v1/clients?status=all\|active\|inactive` | Client catalog. |
+| `GET /api/v1/clients/<id>` | Single client. |
+| `GET /api/v1/clients/<id>/profitability?month=YYYY-MM` | Revenue, variable cost, and gross margin for one client. |
+| `GET /api/v1/clients/<id>/revenue-split?month=YYYY-MM` | Subscription vs. usage revenue for one client. |
+
+`month` defaults to the current month when omitted and must match `YYYY-MM`. Decimal
+values are serialized as JSON numbers (see `app/api/serializers.py`).
+
+Set `REVENUE_API_TOKEN` in `.env` to require `Authorization: Bearer <token>` on every
+`/api/v1/*` request. Leave it empty for local development (no auth), and always set it
+before deploying anywhere reachable outside localhost.
+
+```bash
+curl http://localhost:8050/api/v1/summary?month=2026-07
+curl -H "Authorization: Bearer $REVENUE_API_TOKEN" http://localhost:8050/api/v1/clients
+```
+
 ## Connect Holding APIs (Operational Events)
 
 This console consumes operational events from the holding's source systems

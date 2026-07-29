@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     rpp_events_token: str = Field(default="", description="Service token for the rpp export endpoint.")
     events_sync_page_size: int = Field(default=200, description="Max events requested per export page.")
 
+    revenue_api_token: str = Field(
+        default="",
+        description="Bearer token required on /api/v1/* requests. Empty disables auth (local development only).",
+    )
+
     model_config = SettingsConfigDict(env_file=BASE_DIR / ".env", env_file_encoding="utf-8")
 
     @field_validator("debug", mode="before")

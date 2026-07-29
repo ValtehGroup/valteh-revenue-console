@@ -4,6 +4,7 @@ from pathlib import Path
 import dash
 import dash_bootstrap_components as dbc
 
+from app.api import api_bp
 from app.config import get_settings
 from app.data.seed_data import seed_database
 from app.layout import app_layout
@@ -24,6 +25,7 @@ def create_app() -> dash.Dash:
     )
     app.index_string = THEME_INDEX_STRING
     app.layout = app_layout()
+    app.server.register_blueprint(api_bp)
     register_routes(app)
     register_theme_callbacks(app)
     return app
