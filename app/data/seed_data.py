@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -5,14 +6,13 @@ import pandas as pd
 from sqlalchemy import func, select
 
 from app.config import get_settings
-from app.data.database import SessionLocal, init_db, migrate_db
-from app.data.schemas import ClientORM, ClientSubscriptionORM, CostItemORM, PricingPlanORM
-from app.domain.models import ClientSubscription, PricingPlan
+from app.data.database import SessionLocal, migrate_db
+from app.data.schemas import ClientORM, ClientSubscriptionORM, CostItemORM, PricingPlanORM, UsageEventORM
+from app.domain.models import ClientSubscription, PricingPlan, UsageEvent
 
 
 def seed_database() -> None:
     """Initialize the schema and import runtime reference data exactly once."""
-    init_db()
     migrate_db()
     seed_dir = get_settings().seed_data_dir
     ensure_client_seeded(
@@ -20,6 +20,7 @@ def seed_database() -> None:
         seed_dir / "seed_pricing_plans.csv",
         seed_dir / "seed_client_subscriptions.csv",
     )
+    ensure_usage_seeded(seed_dir / "seed_usage.csv")
     ensure_cost_seeded(seed_dir / "seed_costs.csv")
 
 
@@ -96,6 +97,52 @@ def ensure_cost_seeded(csv_path: Path, session_factory=SessionLocal) -> int:
             ]
         )
         return len(items)
+
+
+def ensure_usage_seeded(csv_path: Path, session_factory=SessionLocal) -> int:
+    """Insert missing historical seed usage without replacing imported events."""
+
+    inserted = 0
+    frame = pd.read_csv(csv_path, keep_default_na=False)
+    with session_factory.begin() as session:
+        existing_ids = set(session.scalars(select(UsageEventORM.id)))
+        existing_references = set(
+            session.execute(
+                select(UsageEventORM.source_system, UsageEventORM.external_reference_id).where(
+                    UsageEventORM.external_reference_id.is_not(None)
+                )
+            ).all()
+        )
+        for record in frame.to_dict("records"):
+            reference = str(record.get("external_reference_id", "")).strip() or None
+            source_system = str(record["source_system"]).strip()
+            if reference is not None and (source_system, reference) in existing_references:
+                continue
+            metadata = str(record.get("metadata_json", "")).strip()
+            event = UsageEvent(
+                id=int(record["id"]),
+                client_id=int(record["client_id"]),
+                service_code=str(record["service_code"]).strip(),
+                event_type=str(record["event_type"]).strip(),
+                quantity=record["quantity"],
+                unit=str(record["unit"]).strip(),
+                event_timestamp=pd.to_datetime(record["event_timestamp"]).to_pydatetime(),
+                source_system=source_system,
+                external_reference_id=reference,
+                metadata_json=json.loads(metadata) if metadata else {},
+            )
+            values = event.model_dump()
+            values["metadata_json"] = json.dumps(values["metadata_json"], separators=(",", ":"), sort_keys=True)
+            if event.id in existing_ids:
+                values.pop("id")
+            row = UsageEventORM(**values)
+            session.add(row)
+            session.flush()
+            existing_ids.add(row.id)
+            if reference is not None:
+                existing_references.add((source_system, reference))
+            inserted += 1
+    return inserted
 
 
 def _seed_date(value, *, required: bool = False):

@@ -172,15 +172,18 @@ def test_available_months_run_from_first_cost_month_to_current_month(monkeypatch
     assert SeedRepository().available_months() == ["2026-04", "2026-05", "2026-06", "2026-07"]
 
 
-def test_seed_database_is_idempotent_schema_initialization(monkeypatch) -> None:
+def test_seed_database_runs_versioned_migrations_before_idempotent_seeding(monkeypatch) -> None:
     calls = []
 
-    def fake_init_db() -> None:
-        calls.append("init")
+    def fake_migrate_db() -> None:
+        calls.append("migrate")
 
-    monkeypatch.setattr("app.data.seed_data.init_db", fake_init_db)
+    monkeypatch.setattr("app.data.seed_data.migrate_db", fake_migrate_db)
+    monkeypatch.setattr("app.data.seed_data.ensure_client_seeded", lambda *_args: 0)
+    monkeypatch.setattr("app.data.seed_data.ensure_usage_seeded", lambda *_args: 0)
+    monkeypatch.setattr("app.data.seed_data.ensure_cost_seeded", lambda *_args: 0)
 
     seed_database()
     seed_database()
 
-    assert calls == ["init", "init"]
+    assert calls == ["migrate", "migrate"]

@@ -132,13 +132,22 @@ class SeedRepository:
             ]
 
     def usage_events(self) -> list[UsageEvent]:
-        df = pd.read_csv(self.data_path / "seed_usage.csv", parse_dates=["event_timestamp"])
-        records = []
-        for record in df.to_dict("records"):
-            metadata = record.get("metadata_json")
-            record["metadata_json"] = json.loads(metadata) if isinstance(metadata, str) and metadata else {}
-            records.append(record)
-        return [UsageEvent(**record) for record in records]
+        from app.data.database import SessionLocal
+        from app.data.schemas import UsageEventORM
+
+        with SessionLocal() as session:
+            rows = session.scalars(
+                select(UsageEventORM).order_by(UsageEventORM.event_timestamp, UsageEventORM.id)
+            ).all()
+            return [
+                UsageEvent.model_validate(
+                    {
+                        **{column.name: getattr(row, column.name) for column in UsageEventORM.__table__.columns},
+                        "metadata_json": json.loads(row.metadata_json) if row.metadata_json else {},
+                    }
+                )
+                for row in rows
+            ]
 
     def cost_items(self) -> list[CostItem]:
         from app.data.cost_repository import CostRepository

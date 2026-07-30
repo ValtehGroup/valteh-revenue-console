@@ -106,6 +106,7 @@ class ClientSubscriptionORM(Base):
 
 class UsageEventORM(Base):
     __tablename__ = "usage_events"
+    __table_args__ = (UniqueConstraint("imported_event_id", name="uq_usage_events_imported_event_id"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     client_id: Mapped[int] = mapped_column(ForeignKey("clients.id"), nullable=False)
@@ -117,6 +118,7 @@ class UsageEventORM(Base):
     source_system: Mapped[str] = mapped_column(String(80), nullable=False)
     external_reference_id: Mapped[str | None] = mapped_column(String(120))
     metadata_json: Mapped[str | None] = mapped_column(Text)
+    imported_event_id: Mapped[int | None] = mapped_column(ForeignKey("imported_operational_events.id"))
 
 
 class CostItemORM(Base):
@@ -192,7 +194,14 @@ class ImportedOperationalEventORM(Base):
     """
 
     __tablename__ = "imported_operational_events"
-    __table_args__ = (UniqueConstraint("source_system", "source_event_id", name="uq_source_event"),)
+    __table_args__ = (
+        UniqueConstraint("source_system", "source_event_id", name="uq_source_event"),
+        CheckConstraint(
+            "import_status IN ('imported', 'normalized', 'unresolved', 'skipped', 'failed')",
+            name="ck_imported_operational_events_status",
+        ),
+        Index("ix_imported_operational_events_source_status", "source_system", "import_status"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     source_system: Mapped[str] = mapped_column(String(80), nullable=False)
@@ -216,8 +225,10 @@ class ImportedOperationalEventORM(Base):
     quantity: Mapped[Decimal | None] = mapped_column(Numeric(18, 6))
     unit: Mapped[str | None] = mapped_column(String(40))
     raw_payload_json: Mapped[str | None] = mapped_column(Text)
-    import_status: Mapped[str] = mapped_column(String(40), default="imported")
+    import_status: Mapped[str] = mapped_column(String(40), default="imported", nullable=False)
     classification_error: Mapped[str | None] = mapped_column(Text)
+    classification_attempts: Mapped[int] = mapped_column(default=0, nullable=False)
+    classified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class EventClassificationORM(Base):
@@ -228,13 +239,14 @@ class EventClassificationORM(Base):
     """
 
     __tablename__ = "event_classifications"
+    __table_args__ = (UniqueConstraint("imported_event_id", name="uq_event_classifications_imported_event_id"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     imported_event_id: Mapped[int] = mapped_column(ForeignKey("imported_operational_events.id"), nullable=False)
     client_id: Mapped[int | None] = mapped_column(ForeignKey("clients.id"))
     service_code: Mapped[str | None] = mapped_column(String(80))
     usage_event_type: Mapped[str | None] = mapped_column(String(120))
-    classification: Mapped[str | None] = mapped_column(String(40))
+    classification: Mapped[str] = mapped_column(String(40), nullable=False)
     quantity: Mapped[Decimal | None] = mapped_column(Numeric(18, 6))
     unit: Mapped[str | None] = mapped_column(String(40))
     is_billable: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -243,6 +255,9 @@ class EventClassificationORM(Base):
     is_internal_only: Mapped[bool] = mapped_column(Boolean, default=False)
     classification_reason: Mapped[str | None] = mapped_column(Text)
     metadata_json: Mapped[str | None] = mapped_column(Text)
+    rule_version: Mapped[str] = mapped_column(String(40), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class EventImportCursorORM(Base):

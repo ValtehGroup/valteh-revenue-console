@@ -22,6 +22,7 @@ are intentionally unavailable.
   - [Client table columns](#client-table-columns)
   - [Client Detail behavior](#client-detail-behavior)
   - [Client examples](#client-examples)
+- [Operational usage](#operational-usage)
 - [Quick decision guide](#quick-decision-guide)
 
 ## General interaction
@@ -370,6 +371,39 @@ remains attached to `client_0001`.
 4. Use **Change pricing plan** to assign a new plan and effective date.
 
 Do not add the returning customer as a new client.
+
+## Operational usage
+
+Operational usage originates in source products such as BAAS and RPP, but only
+`valteh-revenue-api` connects to those products. The API imports each raw event,
+classifies it, and writes recognized normalized usage to the shared database.
+The console reads that same `usage_events` table for Client Detail, historical
+usage, service charts, revenue, costs, and executive aggregates.
+
+A source event's `client_reference` is not assumed to be a console client ID.
+Operators map `(Source System, External Client Reference)` to the durable client
+using **Clients -> Add reference**. Source-system names are normalized to
+lowercase; the external reference is trimmed but is otherwise an exact match.
+
+An imported event may not appear as usage when:
+
+- its operational status is not `succeeded` or `completed`;
+- its type is unsupported or intentionally internal/non-billable;
+- its factual quantity or unit is missing or incompatible; or
+- no enabled external client reference mapping exists.
+
+The raw event remains in `imported_operational_events`. Operators can run the
+following commands from `valteh-revenue-api` to identify and retry work:
+
+```bash
+python -m app.integrations.sync_runner --status
+python -m app.integrations.sync_runner --classify-only
+```
+
+`--status` shows the latest successful checkpoint per source and counts of
+imported, normalized, unresolved, skipped, and failed raw events. After fixing
+a client reference, use `--classify-only`; re-ingesting the source event is not
+required. Source URLs and tokens are configured only on the API deployment.
 
 ## Quick decision guide
 

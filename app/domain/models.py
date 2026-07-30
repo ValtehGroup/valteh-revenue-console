@@ -81,6 +81,7 @@ class UsageEvent(BaseModel):
     source_system: str
     external_reference_id: str | None = None
     metadata_json: dict[str, Any] = Field(default_factory=dict)
+    imported_event_id: int | None = None
 
 
 class CostItem(BaseModel):
