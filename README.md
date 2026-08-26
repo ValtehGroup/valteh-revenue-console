@@ -289,6 +289,33 @@ The earlier mock integration placeholders still live in `app/integrations/`
 the API-owned pipeline and kept only as inert references. They are not used by
 the dashboard runtime; operational credentials belong only in the API environment.
 
+### Claude Console usage and cost reporting
+
+The Usage page can load API token usage, Claude Code analytics, and organization cost reports directly from Anthropic's
+Admin API. This is a server-side administrative reporting integration, not an operational source-system
+connection: the browser receives only report values and never receives the Admin API key.
+
+For local development, set the key only in the ignored `.env` file:
+
+```text
+ANTHROPIC_ADMIN_KEY=sk-ant-admin...
+```
+
+Restart the application after changing `.env`. In production, configure `ANTHROPIC_ADMIN_KEY` as a
+runtime secret on the console service instead of uploading `.env`. Never place the value in
+`.env.example`, source code, Docker build arguments, database records, or logs. The repository's
+`.dockerignore` excludes local environment files from Docker images.
+
+Reports are loaded on demand for a maximum range of 31 days. The page can filter and group usage by API key,
+workspace, model, environment, and client. API-key-to-client assignments are persisted as client external
+references (`anthropic_development`, `anthropic_staging`, `anthropic_production`, or `anthropic_internal`).
+
+Anthropic exposes token usage by API key, but its Cost API does not expose API key as a cost dimension. The
+dashboard therefore allocates each daily billed cost line to matching API keys by workspace, model, and
+token/tool type, proportional to the measured usage units. Any line that cannot be matched remains visible as
+unallocated cost so that the allocation always reconciles to the organization bill without silently inventing
+ownership.
+
 ## Production Notes
 
 Set `DATABASE_URL` to a PostgreSQL SQLAlchemy URL, for example:
