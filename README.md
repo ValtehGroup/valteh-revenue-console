@@ -244,20 +244,23 @@ migrations/               Reserved for Alembic migrations
 4. Add pricing fields or event mapping in `app/domain/revenue_engine.py` if the service has billable units.
 5. Add charts or tables in the relevant page module if the service needs custom display.
 
-## Connect Holding APIs (Operational Events)
+## Operational Usage
 
-This console consumes operational events from the holding's source systems
-(`baas-qro`, `rpp-fraud-detection-system`, future `sigen-plus-front`). Source
-systems emit operational facts only; all pricing, cost, revenue, and margin
-logic stays in this app. The full contract and architecture live in:
+`valteh-revenue-api` is the only component that connects to operational source
+systems. It stores raw events, resolves source-scoped client references,
+classifies successful events, and writes normalized records to the shared
+`usage_events` table. This console reads those rows through its existing SQL
+repository; it does not hold source URLs or tokens. The full contract and
+architecture live in:
 
 - `docs/shared-operational-event-contract.md`
 - `docs/event-consumption-architecture.md`
 
-### Pull pipeline (Phase 1: ingestion foundation)
+### Shared database pipeline
 
 Each source system exposes `GET /api/operational-events` (cursor-paginated).
-This app pulls those pages and stores raw facts idempotently.
+The API pulls those pages and stores raw facts idempotently. Its corresponding
+modules are:
 
 - `app/domain/operational_events.py` — Pydantic contract models.
 - `app/integrations/operational_events_client.py` — HTTP client (`httpx`).
@@ -265,23 +268,53 @@ This app pulls those pages and stores raw facts idempotently.
   `(source_system, source_event_id)`, cursor tracking.
 - `app/integrations/sync_runner.py` — entry point.
 
-Configure source URLs and tokens in `.env` (see `.env.example`), then run:
+Configure source URLs and tokens in the API `.env`, then run from the API
+repository:
 
 ```bash
 python -m app.integrations.sync_runner
 ```
 
-Imported events land in `imported_operational_events`. Classification,
-normalization to `UsageEvent`, and economic calculation are later phases
-described in `docs/event-consumption-architecture.md`.
+Imported events land in `imported_operational_events`; successful recognized
+events normalize into `usage_events`. Nullable `usage_events.imported_event_id`
+provides provenance while existing manual and seed records remain compatible.
+The API deployment runs `alembic upgrade head` before either application starts.
+Both repositories carry the identical shared-schema migration revision.
 
 ### Legacy placeholders
 
 The earlier mock integration placeholders still live in `app/integrations/`
 (`fetch_saremi_usage()`, `fetch_llm_token_usage()`, `fetch_graphos_usage()`,
 `fetch_blockchain_usage()`, `fetch_platform_clients()`). They are superseded by
-the pull pipeline above and kept only as references. Keep API authentication and
-endpoints in `.env`, not in source code.
+the API-owned pipeline and kept only as inert references. They are not used by
+the dashboard runtime; operational credentials belong only in the API environment.
+
+### Claude Console usage and cost reporting
+
+The Usage page can load API token usage, Claude Code analytics, and organization cost reports directly from Anthropic's
+Admin API. This is a server-side administrative reporting integration, not an operational source-system
+connection: the browser receives only report values and never receives the Admin API key.
+
+For local development, set the key only in the ignored `.env` file:
+
+```text
+ANTHROPIC_ADMIN_KEY=sk-ant-admin...
+```
+
+Restart the application after changing `.env`. In production, configure `ANTHROPIC_ADMIN_KEY` as a
+runtime secret on the console service instead of uploading `.env`. Never place the value in
+`.env.example`, source code, Docker build arguments, database records, or logs. The repository's
+`.dockerignore` excludes local environment files from Docker images.
+
+Reports are loaded on demand for a maximum range of 31 days. The page can filter and group usage by API key,
+workspace, model, environment, and client. API-key-to-client assignments are persisted as client external
+references (`anthropic_development`, `anthropic_staging`, `anthropic_production`, or `anthropic_internal`).
+
+Anthropic exposes token usage by API key, but its Cost API does not expose API key as a cost dimension. The
+dashboard therefore allocates each daily billed cost line to matching API keys by workspace, model, and
+token/tool type, proportional to the measured usage units. Any line that cannot be matched remains visible as
+unallocated cost so that the allocation always reconciles to the organization bill without silently inventing
+ownership.
 
 ## Production Notes
 

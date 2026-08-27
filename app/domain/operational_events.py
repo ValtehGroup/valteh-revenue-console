@@ -89,3 +89,4 @@ class OperationalEventPage(BaseModel):
 
     data: list[OperationalEvent]
     pagination: OperationalEventPagination = Field(default_factory=OperationalEventPagination)
+    invalid_event_errors: list[str] = Field(default_factory=list, exclude=True)

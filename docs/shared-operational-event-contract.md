@@ -10,7 +10,7 @@ This document defines the common operational event contract for all Valteh sourc
 
 Source systems emit operational facts only. They describe what happened in a registry, blockchain, identity, document, fraud, review, or platform workflow.
 
-`valteh-revenue-console` is the only system responsible for pricing, costs, revenue, margins, billing, invoices, discounts, taxes, plans, and client profitability.
+`valteh-revenue-api` is the sole ingestion and normalization owner. `valteh-revenue-console` remains responsible for presenting pricing, costs, revenue, margins, plans, and client profitability from the shared database.
 
 Source events must not include:
 
@@ -560,5 +560,6 @@ Errors should use a conventional shape:
 
 This contract is for operational events only.
 
-Economic interpretation belongs exclusively to `valteh-revenue-console`.
+Operational classification and normalization belong to `valteh-revenue-api`.
+Economic calculation and dashboard presentation remain in `valteh-revenue-console`.
 

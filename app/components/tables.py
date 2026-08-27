@@ -51,8 +51,9 @@ def status_cell_styles(column_id: str) -> list[dict]:
 
 def data_table(table_id: str, rows: list[dict], page_size: int = 10, **kwargs) -> dash_table.DataTable:
     excluded_columns = set(kwargs.pop("excluded_columns", []))
+    column_options = kwargs.pop("column_options", {})
     column_ids = [column_id for column_id in rows[0].keys() if column_id not in excluded_columns] if rows else []
-    columns = [{"name": key.replace("_", " ").title(), "id": key} for key in column_ids]
+    columns = [{"name": key.replace("_", " ").title(), "id": key, **column_options.get(key, {})} for key in column_ids]
     numeric_columns = [
         column_id
         for column_id in column_ids

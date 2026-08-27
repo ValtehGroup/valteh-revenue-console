@@ -2,11 +2,11 @@
 
 ## 1. Purpose
 
-`valteh-revenue-console` consumes operational events from systems such as `baas-qro` and `rpp-fraud-detection-system` so it can perform economic interpretation in one place.
+`valteh-revenue-api` consumes operational events from systems such as `baas-qro` and `rpp-fraud-detection-system`, classifies them, and writes normalized usage to the PostgreSQL database shared with `valteh-revenue-console`.
 
 Source systems emit facts only. They record what happened: a document was validated, a fraud alert was created, a property was minted, a certificate was issued, or a chaincode was invoked. They must not calculate prices, costs, revenue, margins, invoices, billing, or profitability.
 
-The revenue console consumes those facts and classifies them into:
+The revenue API consumes those facts and classifies them into:
 
 - Usage metrics.
 - Billable events.
@@ -15,7 +15,20 @@ The revenue console consumes those facts and classifies them into:
 - Internal-only events.
 - Monthly revenue, cost, margin, billing, and profitability inputs.
 
-The purpose is to create a clean boundary: operational systems stay focused on operational truth, and this system owns all economic logic.
+The purpose is to create a clean boundary: operational systems stay focused on operational truth, the API owns ingestion and normalization, and the console keeps its existing SQL-backed economic views and calculations during this transition.
+
+### Transitional runtime flow
+
+```text
+Operational source systems
+    -> valteh-revenue-api (raw import, checkpoint, classification)
+    -> shared PostgreSQL (raw events and normalized usage_events)
+    -> valteh-revenue-console (existing SQL repositories and dashboards)
+```
+
+Only the API stores source URLs and tokens or calls source export endpoints.
+The console carries matching ORM and Alembic metadata solely for shared-schema
+compatibility.
 
 ## 2. Responsibility Boundary
 
@@ -60,9 +73,11 @@ Source systems should not send:
 - Tax.
 - Profitability classification.
 
-### valteh-revenue-console
+### valteh-revenue-api and valteh-revenue-console
 
-This system is responsible for:
+The API is responsible for importing, resolving client references, classifying,
+normalizing, and preserving provenance. The console is responsible for applying
+the existing economic models and presenting the results. Together they provide:
 
 - Mapping imported operational events to clients.
 - Classifying events.

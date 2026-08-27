@@ -312,9 +312,7 @@ class ClientRepository:
     def list_references(self, client_id: int, *, include_inactive: bool = True) -> list[ClientExternalReference]:
         with self._session_factory() as session:
             self._get_client_row(session, client_id)
-            statement = select(ClientExternalReferenceORM).where(
-                ClientExternalReferenceORM.client_id == client_id
-            )
+            statement = select(ClientExternalReferenceORM).where(ClientExternalReferenceORM.client_id == client_id)
             if not include_inactive:
                 statement = statement.where(ClientExternalReferenceORM.enabled.is_(True))
             rows = session.scalars(statement.order_by(ClientExternalReferenceORM.source_system)).all()
@@ -360,15 +358,23 @@ class ClientRepository:
                 raise ClientManagementError("The external reference could not be deactivated.") from exc
 
     def resolve_client_reference(self, source_system: str, external_reference: str) -> int | None:
-        source, reference = _validate_reference(source_system, external_reference)
         with self._session_factory() as session:
-            return session.scalar(
-                select(ClientExternalReferenceORM.client_id).where(
-                    ClientExternalReferenceORM.source_system == source,
-                    ClientExternalReferenceORM.external_client_reference == reference,
-                    ClientExternalReferenceORM.enabled.is_(True),
-                )
+            return self.resolve_client_reference_in_session(session, source_system, external_reference)
+
+    @staticmethod
+    def resolve_client_reference_in_session(
+        session: Session, source_system: str, external_reference: str
+    ) -> int | None:
+        """Resolve a source-scoped reference inside an existing transaction."""
+
+        source, reference = _validate_reference(source_system, external_reference)
+        return session.scalar(
+            select(ClientExternalReferenceORM.client_id).where(
+                ClientExternalReferenceORM.source_system == source,
+                ClientExternalReferenceORM.external_client_reference == reference,
+                ClientExternalReferenceORM.enabled.is_(True),
             )
+        )
 
     @staticmethod
     def _get_client_row(session: Session, client_id: int) -> ClientORM:

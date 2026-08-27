@@ -19,6 +19,7 @@ def register_routes(app) -> None:
     costs.register_callbacks(app)
     pricing.register_callbacks(app)
     scenarios.register_callbacks(app)
+    usage.register_callbacks(app)
 
     @app.callback(
         Output("page-content", "children"),
