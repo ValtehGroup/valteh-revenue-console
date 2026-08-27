@@ -36,7 +36,10 @@ def ensure_client_seeded(
     now = datetime.now(UTC)
     with session_factory.begin() as session:
         if not session.scalar(select(func.count()).select_from(PricingPlanORM)):
-            plan_records = pd.read_csv(pricing_plans_path).to_dict("records")
+            plan_records = pd.read_csv(pricing_plans_path, keep_default_na=False).to_dict("records")
+            for record in plan_records:
+                dedicated_client_id = str(record.get("dedicated_client_id", "")).strip()
+                record["dedicated_client_id"] = int(dedicated_client_id) if dedicated_client_id else None
             session.add_all([PricingPlanORM(**PricingPlan(**record).model_dump()) for record in plan_records])
 
         if not session.scalar(select(func.count()).select_from(ClientORM)):

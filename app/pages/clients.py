@@ -398,7 +398,7 @@ def _action_title(action: str) -> str:
 def _action_form(action: str, selected: dict | None):
     selected = selected or {}
     if action == "change_plan":
-        pricing_plans = SeedRepository().pricing_plans()
+        pricing_plans = SeedRepository().pricing_plans(client_id=int(selected["id"]))
         current_plan_id = selected.get("pricing_plan_id")
         default_plan = next((plan for plan in pricing_plans if plan.id != current_plan_id), None)
         return html.Div(
@@ -492,7 +492,7 @@ def _action_form(action: str, selected: dict | None):
         ]
     )
     if action == "add":
-        pricing_plans = SeedRepository().pricing_plans()
+        pricing_plans = SeedRepository().pricing_plans(reusable_only=True)
         fields.extend(
             [
                 html.H3("Initial pricing", className="h6"),

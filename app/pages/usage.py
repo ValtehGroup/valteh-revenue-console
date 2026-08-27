@@ -45,6 +45,11 @@ GROUP_LABELS = {
     "environment": "Environment",
     "model": "Model",
 }
+CHART_GRANULARITY_LABELS = {
+    "daily": "Date (UTC)",
+    "monthly": "Month (UTC)",
+    "yearly": "Year (UTC)",
+}
 
 
 def _history_status_message(status) -> str:
@@ -243,6 +248,7 @@ def register_callbacks(app) -> None:
         Input("anthropic-client-filter", "value"),
         Input("anthropic-group-by", "value"),
         Input("anthropic-chart-metric", "value"),
+        Input("anthropic-chart-granularity", "value"),
         Input("anthropic-assignment-version", "data"),
     )
     def update_analysis(
@@ -254,6 +260,7 @@ def register_callbacks(app) -> None:
         client_id: str | int | None,
         group_by: str | None,
         chart_metric: str | None,
+        chart_granularity: str | None,
         _assignment_version: int | None,
     ):
         if not report_data:
@@ -267,6 +274,7 @@ def register_callbacks(app) -> None:
             client_id or ALL_FILTER_VALUE,
             group_by if group_by in GROUP_LABELS else "api_key",
             chart_metric if chart_metric in {"usage", "cost"} else "usage",
+            chart_granularity if chart_granularity in CHART_GRANULARITY_LABELS else "daily",
         )
 
     @app.callback(
@@ -640,6 +648,7 @@ def _analysis_sections(
     client_id: str | int,
     group_by: str,
     chart_metric: str = "usage",
+    chart_granularity: str = "daily",
 ) -> tuple[html.Div | dbc.Row, go.Figure, html.Div]:
     rows = _enriched_allocation_rows(report_data)
     filtered_rows = _filter_allocation_rows(
@@ -672,7 +681,7 @@ def _analysis_sections(
     detail_rows = [_display_allocation_row(row) for row in filtered_rows]
     return (
         _analysis_kpis(input_tokens, output_tokens, web_searches, allocated_cost, disclaimer),
-        _over_time_figure(filtered_rows, group_by, chart_metric),
+        _over_time_figure(filtered_rows, group_by, chart_metric, chart_granularity),
         html.Div(
             [
                 html.H3(f"Summary by {GROUP_LABELS[group_by].lower()}", className="h6"),
@@ -856,65 +865,89 @@ def _display_allocation_row(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _token_usage_figure(rows: list[dict[str, Any]], group_by: str):
+def _period_label(raw_date: str, granularity: str) -> str:
+    day = date.fromisoformat(raw_date)
+    if granularity == "monthly":
+        return day.strftime("%Y-%m")
+    if granularity == "yearly":
+        return str(day.year)
+    return day.isoformat()
+
+
+def _token_usage_figure(rows: list[dict[str, Any]], group_by: str, granularity: str = "daily"):
+    granularity = granularity if granularity in CHART_GRANULARITY_LABELS else "daily"
     chart_rows = [
         {
-            "date": row["date"],
+            "period": _period_label(row["date"], granularity),
             "group": _group_label(row, group_by),
             "tokens": int(row["total_tokens"]),
         }
         for row in rows
     ]
-    frame = pd.DataFrame(chart_rows).groupby(["date", "group"], as_index=False)["tokens"].sum()
+    frame = pd.DataFrame(chart_rows).groupby(["period", "group"], as_index=False)["tokens"].sum()
     frame["tokens_thousands"] = frame["tokens"].map(lambda value: f"{value / 1000:,.0f}k")
     figure = px.bar(
         frame,
-        x="date",
+        x="period",
         y="tokens",
         color="group",
         custom_data=["tokens_thousands"],
         barmode="stack",
         title="Token usage over time",
-        labels={"date": "Date (UTC)", "tokens": "Tokens", "group": GROUP_LABELS[group_by]},
+        labels={
+            "period": CHART_GRANULARITY_LABELS[granularity],
+            "tokens": "Tokens",
+            "group": GROUP_LABELS[group_by],
+        },
     )
     figure.update_traces(hovertemplate="%{fullData.name}<br>Tokens=%{customdata[0]}<extra></extra>")
     figure.update_layout(hovermode="x unified", legend_title_text=GROUP_LABELS[group_by])
-    chronological_dates = sorted(frame["date"].unique())
-    figure.update_xaxes(type="category", categoryorder="array", categoryarray=chronological_dates)
+    chronological_periods = sorted(frame["period"].unique())
+    figure.update_xaxes(type="category", categoryorder="array", categoryarray=chronological_periods)
     return apply_chart_theme(figure)
 
 
-def _cost_over_time_figure(rows: list[dict[str, Any]], group_by: str):
+def _cost_over_time_figure(rows: list[dict[str, Any]], group_by: str, granularity: str = "daily"):
+    granularity = granularity if granularity in CHART_GRANULARITY_LABELS else "daily"
     chart_rows = [
         {
-            "date": row["date"],
+            "period": _period_label(row["date"], granularity),
             "group": _group_label(row, group_by),
             "cost_usd": float(_decimal(row["allocated_cost_usd"])),
         }
         for row in rows
     ]
-    frame = pd.DataFrame(chart_rows).groupby(["date", "group"], as_index=False)["cost_usd"].sum()
+    frame = pd.DataFrame(chart_rows).groupby(["period", "group"], as_index=False)["cost_usd"].sum()
     figure = px.bar(
         frame,
-        x="date",
+        x="period",
         y="cost_usd",
         color="group",
         barmode="stack",
         title="Allocated cost over time",
-        labels={"date": "Date (UTC)", "cost_usd": "Cost (USD)", "group": GROUP_LABELS[group_by]},
+        labels={
+            "period": CHART_GRANULARITY_LABELS[granularity],
+            "cost_usd": "Cost (USD)",
+            "group": GROUP_LABELS[group_by],
+        },
     )
     figure.update_traces(hovertemplate="%{fullData.name}<br>Cost (USD)=$%{y:,.2f}<extra></extra>")
     figure.update_layout(hovermode="x unified", legend_title_text=GROUP_LABELS[group_by])
     figure.update_yaxes(tickprefix="$", tickformat=",.2f")
-    chronological_dates = sorted(frame["date"].unique())
-    figure.update_xaxes(type="category", categoryorder="array", categoryarray=chronological_dates)
+    chronological_periods = sorted(frame["period"].unique())
+    figure.update_xaxes(type="category", categoryorder="array", categoryarray=chronological_periods)
     return apply_chart_theme(figure)
 
 
-def _over_time_figure(rows: list[dict[str, Any]], group_by: str, chart_metric: str):
+def _over_time_figure(
+    rows: list[dict[str, Any]],
+    group_by: str,
+    chart_metric: str,
+    granularity: str = "daily",
+):
     if chart_metric == "cost":
-        return _cost_over_time_figure(rows, group_by)
-    return _token_usage_figure(rows, group_by)
+        return _cost_over_time_figure(rows, group_by, granularity)
+    return _token_usage_figure(rows, group_by, granularity)
 
 
 def _group_label(row: dict[str, Any], group_by: str) -> str:
@@ -990,21 +1023,48 @@ def _filter_control(
 def _chart_metric_control() -> html.Div:
     return html.Div(
         [
-            dbc.Label("View", html_for="anthropic-chart-metric", className="small mb-0"),
-            dbc.RadioItems(
-                id="anthropic-chart-metric",
-                options=[
-                    {"label": "Usage", "value": "usage"},
-                    {"label": "Cost", "value": "cost"},
+            html.Div(
+                [
+                    dbc.Label("View", html_for="anthropic-chart-metric", className="small mb-0"),
+                    dbc.RadioItems(
+                        id="anthropic-chart-metric",
+                        options=[
+                            {"label": "Usage", "value": "usage"},
+                            {"label": "Cost", "value": "cost"},
+                        ],
+                        value="usage",
+                        inline=True,
+                        persistence=True,
+                        persistence_type="session",
+                        className="btn-group anthropic-chart-toggle",
+                        input_class_name="btn-check",
+                        label_class_name="btn btn-outline-primary",
+                        label_checked_class_name="active",
+                    ),
                 ],
-                value="usage",
-                inline=True,
-                persistence=True,
-                persistence_type="session",
-                className="btn-group anthropic-chart-toggle",
-                input_class_name="btn-check",
-                label_class_name="btn btn-outline-primary",
-                label_checked_class_name="active",
+                className="anthropic-chart-control",
+            ),
+            html.Div(
+                [
+                    dbc.Label("Interval", html_for="anthropic-chart-granularity", className="small mb-0"),
+                    dbc.RadioItems(
+                        id="anthropic-chart-granularity",
+                        options=[
+                            {"label": "Daily", "value": "daily"},
+                            {"label": "Monthly", "value": "monthly"},
+                            {"label": "Yearly", "value": "yearly"},
+                        ],
+                        value="daily",
+                        inline=True,
+                        persistence=True,
+                        persistence_type="session",
+                        className="btn-group anthropic-chart-toggle",
+                        input_class_name="btn-check",
+                        label_class_name="btn btn-outline-primary",
+                        label_checked_class_name="active",
+                    ),
+                ],
+                className="anthropic-chart-control",
             ),
         ],
         className="anthropic-chart-toolbar",
