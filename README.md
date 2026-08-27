@@ -306,15 +306,23 @@ runtime secret on the console service instead of uploading `.env`. Never place t
 `.env.example`, source code, Docker build arguments, database records, or logs. The repository's
 `.dockerignore` excludes local environment files from Docker images.
 
-Reports are loaded on demand for a maximum range of 31 days. The page can filter and group usage by API key,
-workspace, model, environment, and client. API-key-to-client assignments are persisted as client external
-references (`anthropic_development`, `anthropic_staging`, `anthropic_production`, or `anthropic_internal`).
+The **Historical** subtab shows all persisted history, while **Live API** reports are loaded on demand for a
+maximum range of 31 days. The latest successful Live report is cached only for the current browser session so it
+survives page and subtab changes; it is not written to the historical database. The page can filter and group
+usage by API key, workspace, model, environment, and client. API-key-to-client assignments are persisted as client external references
+(`anthropic_development`, `anthropic_staging`, `anthropic_production`, or `anthropic_internal`).
 
 Anthropic exposes token usage by API key, but its Cost API does not expose API key as a cost dimension. The
 dashboard therefore allocates each daily billed cost line to matching API keys by workspace, model, and
 token/tool type, proportional to the measured usage units. Any line that cannot be matched remains visible as
 unallocated cost so that the allocation always reconciles to the organization bill without silently inventing
 ownership.
+
+Durable Anthropic history is synchronized by the explicit **Update history** action or the `anthropic-history`
+CLI; both use the same idempotent service. Dashboard Live reports remain outside the database, and merely opening
+or reading the historical dashboard never calls Anthropic or writes synchronization data. See
+[Anthropic History Operations](docs/anthropic-history.md) for bootstrap, incremental, repair, scheduling,
+reconciliation, and recovery procedures.
 
 ## Production Notes
 

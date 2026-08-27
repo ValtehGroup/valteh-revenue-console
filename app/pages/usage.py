@@ -9,7 +9,7 @@ import dash_bootstrap_components as dbc
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from dash import Input, Output, State, dcc, html, no_update
+from dash import Input, Output, State, ctx, dcc, html, no_update
 
 from app.components.chart_theme import apply_chart_theme
 from app.components.kpi_card import kpi_card
@@ -21,9 +21,15 @@ from app.data.anthropic_assignment_repository import (
     AnthropicAssignmentRepository,
     AnthropicKeyAssignmentCommand,
 )
+from app.data.anthropic_history_repository import AnthropicHistoryRepository
 from app.data.client_repository import ClientRepository
 from app.data.repositories import SeedRepository
 from app.domain.anthropic_cost_allocation import allocate_anthropic_costs
+from app.domain.anthropic_history_sync import (
+    AnthropicHistorySyncService,
+    AnthropicSyncRequest,
+    safe_sync_error_message,
+)
 from app.integrations.anthropic_admin_api import (
     MAX_REPORT_DAYS,
     AnthropicAdminAPIError,
@@ -41,12 +47,23 @@ GROUP_LABELS = {
 }
 
 
+def _history_status_message(status) -> str:
+    if status.usage_last_complete_date is None or status.cost_last_complete_date is None:
+        return "Historical database is not initialized. Select Update history to import complete UTC days."
+    synced_at = status.last_successful_sync_at.isoformat() if status.last_successful_sync_at is not None else "unknown"
+    return (
+        f"Historical freshness — usage through {status.usage_last_complete_date.isoformat()}; "
+        f"cost through {status.cost_last_complete_date.isoformat()}; last successful sync {synced_at}."
+    )
+
+
 def layout():
     repo = SeedRepository()
     rows = _usage_rows(repo)
     today = date.today()
     default_start = today - timedelta(days=6)
     anthropic_is_configured = get_settings().anthropic_admin_key is not None
+    history_status = AnthropicHistoryRepository().status()
     return html.Div(
         [
             html.H1("Usage", className="h3"),
@@ -56,54 +73,97 @@ def layout():
                     [
                         html.H2("Anthropic usage and cost allocation", className="h5"),
                         html.P(
-                            "Loaded server-side from the Anthropic Admin API. The Admin API key is never sent "
-                            "to the browser.",
+                            "Choose persisted history for long-term reporting or the live Admin API for a "
+                            "temporary current view. The Admin API key is never sent to the browser.",
                             className="text-muted",
                         ),
-                        dbc.Alert(
-                            (
-                                "Admin API key configured. Choose a range and load the report."
-                                if anthropic_is_configured
-                                else "Admin API key not configured. Paste it into ANTHROPIC_ADMIN_KEY in .env "
-                                "and restart the server."
-                            ),
-                            color="success" if anthropic_is_configured else "warning",
+                        dbc.Tabs(
+                            [
+                                dbc.Tab(label="Historical", tab_id="historical"),
+                                dbc.Tab(label="Live API", tab_id="live"),
+                            ],
+                            id="anthropic-report-tabs",
+                            active_tab="historical",
+                            persistence=True,
+                            persistence_type="session",
                             className="mb-3",
                         ),
                         html.Div(
                             [
-                                html.Div(
-                                    [
-                                        dbc.Label(
-                                            "Report range",
-                                            html_for="claude-report-range",
-                                            className="small mb-1",
-                                        ),
-                                        dcc.DatePickerRange(
-                                            id="claude-report-range",
-                                            start_date=default_start,
-                                            end_date=today,
-                                            max_date_allowed=today,
-                                            display_format="YYYY-MM-DD",
-                                            minimum_nights=0,
-                                            persistence=True,
-                                            persistence_type="session",
-                                        ),
-                                    ]
+                                dbc.Alert(
+                                    _history_status_message(history_status),
+                                    id="anthropic-history-status",
+                                    color="secondary",
+                                    className="mb-3",
                                 ),
                                 dbc.Button(
-                                    "Load Claude report",
-                                    id="claude-load-report",
+                                    "Update history",
+                                    id="anthropic-update-history",
                                     color="primary",
                                     disabled=not anthropic_is_configured,
                                 ),
+                                html.P(
+                                    "The report below always includes all persisted history. Update imports only "
+                                    "complete UTC days since the latest successful sync and safely refreshes the "
+                                    "recent overlap.",
+                                    className="small text-muted mt-2 mb-0",
+                                ),
                             ],
-                            className="d-flex flex-wrap gap-3 align-items-end mb-3",
+                            id="anthropic-historical-controls",
+                            className="mb-3",
                         ),
-                        html.P(
-                            f"A report can include up to {MAX_REPORT_DAYS} days. Data is requested only when "
-                            "you press the button.",
-                            className="small text-muted",
+                        html.Div(
+                            [
+                                dbc.Alert(
+                                    (
+                                        "Admin API key configured. Choose a range and load a temporary report."
+                                        if anthropic_is_configured
+                                        else "Admin API key not configured. Paste it into ANTHROPIC_ADMIN_KEY in "
+                                        ".env and restart the server."
+                                    ),
+                                    color="success" if anthropic_is_configured else "warning",
+                                    className="mb-3",
+                                ),
+                                html.Div(
+                                    [
+                                        html.Div(
+                                            [
+                                                dbc.Label(
+                                                    "Report range",
+                                                    html_for="claude-report-range",
+                                                    className="small mb-1",
+                                                ),
+                                                dcc.DatePickerRange(
+                                                    id="claude-report-range",
+                                                    start_date=default_start,
+                                                    end_date=today,
+                                                    max_date_allowed=today,
+                                                    display_format="YYYY-MM-DD",
+                                                    minimum_nights=0,
+                                                    persistence=True,
+                                                    persistence_type="session",
+                                                ),
+                                            ]
+                                        ),
+                                        dbc.Button(
+                                            "Load Claude report",
+                                            id="claude-load-report",
+                                            color="primary",
+                                            disabled=not anthropic_is_configured,
+                                        ),
+                                    ],
+                                    className="d-flex flex-wrap gap-3 align-items-end",
+                                ),
+                                html.P(
+                                    f"Live API reports can include up to {MAX_REPORT_DAYS} days. The latest "
+                                    "successful report is kept for this browser session but is not written to "
+                                    "the historical database.",
+                                    className="small text-muted mt-2 mb-0",
+                                ),
+                            ],
+                            id="anthropic-live-controls",
+                            className="mb-3",
+                            style={"display": "none"},
                         ),
                         dcc.Loading(html.Div(id="claude-report-content"), type="circle"),
                     ]
@@ -118,14 +178,58 @@ def layout():
 
 def register_callbacks(app) -> None:
     @app.callback(
+        Output("anthropic-historical-controls", "style"),
+        Output("anthropic-live-controls", "style"),
+        Input("anthropic-report-tabs", "active_tab"),
+    )
+    def show_report_controls(active_tab: str | None):
+        if active_tab == "live":
+            return {"display": "none"}, {"display": "block"}
+        return {"display": "block"}, {"display": "none"}
+
+    @app.callback(
         Output("claude-report-content", "children"),
+        Output("anthropic-history-status", "children"),
+        Output("anthropic-history-status", "color"),
+        Output("anthropic-live-report-cache", "data"),
+        Input("anthropic-report-tabs", "active_tab"),
+        Input("anthropic-update-history", "n_clicks"),
         Input("claude-load-report", "n_clicks"),
         State("claude-report-range", "start_date"),
         State("claude-report-range", "end_date"),
-        prevent_initial_call=True,
+        State("anthropic-live-report-cache", "data"),
     )
-    def load_claude_report(_clicks: int, starting_at: str | None, ending_at: str | None):
-        return _claude_report_content(starting_at, ending_at)
+    def load_anthropic_report(
+        active_tab: str | None,
+        _update_clicks: int | None,
+        _live_clicks: int | None,
+        starting_at: str | None,
+        ending_at: str | None,
+        cached_live_report: dict[str, Any] | None,
+    ):
+        if active_tab == "live":
+            if ctx.triggered_id == "claude-load-report":
+                content, report_data = _report_content_with_data("live", starting_at, ending_at)
+                return content, no_update, no_update, report_data if report_data is not None else no_update
+            if _is_cached_live_report(cached_live_report):
+                return _render_serialized_report(cached_live_report), no_update, no_update, no_update
+            return (
+                dbc.Alert("Choose a range and load a temporary Live API report.", color="secondary"),
+                no_update,
+                no_update,
+                no_update,
+            )
+
+        repository = AnthropicHistoryRepository()
+        if ctx.triggered_id == "anthropic-update-history":
+            content, status, color = _update_historical_report(repository)
+            return content, status, color, no_update
+        return (
+            _historical_report_content(repository),
+            _history_status_message(repository.status()),
+            "secondary",
+            no_update,
+        )
 
     @app.callback(
         Output("anthropic-analysis-summary-content", "children"),
@@ -200,43 +304,170 @@ def _claude_report_content(
     ending_at: str | None,
     client: AnthropicAdminClient | None = None,
 ):
-    if not starting_at or not ending_at:
-        return dbc.Alert("Select both a start date and an end date.", color="warning")
+    return _report_content("live", starting_at, ending_at, client=client)
 
-    settings = get_settings()
-    secret = settings.anthropic_admin_key
-    if client is None:
+
+def _historical_report_content(
+    history_repository: AnthropicHistoryRepository | None = None,
+    *,
+    notice: Any | None = None,
+):
+    repository = history_repository or AnthropicHistoryRepository()
+    history_range = repository.history_range()
+    if history_range is None:
+        content = dbc.Alert(
+            "No historical Anthropic facts are stored yet. Select Update history to initialize them.",
+            color="secondary",
+        )
+    else:
+        report = repository.load_report(history_range.starting_at, history_range.ending_at)
+        content = _render_claude_report(
+            report,
+            history_range.starting_at,
+            history_range.ending_at,
+            source="historical",
+        )
+    return html.Div(([notice] if notice is not None else []) + [content])
+
+
+def _update_historical_report(
+    history_repository: AnthropicHistoryRepository | None = None,
+    *,
+    client: AnthropicAdminClient | None = None,
+    sync_service: AnthropicHistorySyncService | None = None,
+):
+    repository = history_repository or AnthropicHistoryRepository()
+    secret = get_settings().anthropic_admin_key
+    if client is None and sync_service is None:
         if secret is None:
-            return dbc.Alert(
-                "Admin API key is not configured. Update .env and restart the server.",
-                color="warning",
+            message = "Admin API key is not configured. Update .env and restart the server."
+            return (
+                _historical_report_content(repository, notice=dbc.Alert(message, color="warning")),
+                message,
+                "warning",
             )
         client = AnthropicAdminClient(secret.get_secret_value())
+
+    watermarks = repository.watermarks()
+    mode = "incremental" if watermarks.usage is not None and watermarks.cost is not None else "bootstrap"
+    service = sync_service or AnthropicHistorySyncService(client, repository)
+    try:
+        result = service.sync(AnthropicSyncRequest(mode=mode))
+    except Exception as exc:
+        message = safe_sync_error_message(exc)
+        return (
+            _historical_report_content(repository, notice=dbc.Alert(message, color="danger")),
+            _history_status_message(repository.status()),
+            "danger",
+        )
+
+    notice = dbc.Alert(
+        f"History updated for {result.starting_at.isoformat()} through {result.ending_at.isoformat()} (UTC). "
+        f"Usage rows: {len(result.report.messages_usage_rows)}; cost rows: {len(result.report.cost_rows)}.",
+        color="success",
+    )
+    status = repository.status()
+    return _historical_report_content(repository, notice=notice), _history_status_message(status), "success"
+
+
+def _report_content(
+    source: str,
+    starting_at: str | None,
+    ending_at: str | None,
+    *,
+    client: AnthropicAdminClient | None = None,
+    history_repository: AnthropicHistoryRepository | None = None,
+):
+    content, _report_data = _report_content_with_data(
+        source,
+        starting_at,
+        ending_at,
+        client=client,
+        history_repository=history_repository,
+    )
+    return content
+
+
+def _report_content_with_data(
+    source: str,
+    starting_at: str | None,
+    ending_at: str | None,
+    *,
+    client: AnthropicAdminClient | None = None,
+    history_repository: AnthropicHistoryRepository | None = None,
+) -> tuple[Any, dict[str, Any] | None]:
+    if not starting_at or not ending_at:
+        return dbc.Alert("Select both a start date and an end date.", color="warning"), None
 
     try:
         start_date = date.fromisoformat(starting_at[:10])
         end_date = date.fromisoformat(ending_at[:10])
-        report = client.fetch_report(start_date, end_date)
+        if source == "historical":
+            report = (history_repository or AnthropicHistoryRepository()).load_report(start_date, end_date)
+        elif source == "live":
+            settings = get_settings()
+            secret = settings.anthropic_admin_key
+            if client is None:
+                if secret is None:
+                    return (
+                        dbc.Alert(
+                            "Admin API key is not configured. Update .env and restart the server.",
+                            color="warning",
+                        ),
+                        None,
+                    )
+                client = AnthropicAdminClient(secret.get_secret_value())
+            report = client.fetch_report(start_date, end_date)
+        else:
+            return dbc.Alert("Choose a valid Anthropic report source.", color="warning"), None
     except ValueError as exc:
-        return dbc.Alert(str(exc), color="warning")
+        return dbc.Alert(str(exc), color="warning"), None
     except AnthropicAdminAPIError as exc:
-        return dbc.Alert(str(exc), color="danger")
+        return dbc.Alert(str(exc), color="danger"), None
 
-    return _render_claude_report(report, start_date, end_date)
+    report_data = _serialize_report(report, start_date, end_date)
+    report_data["source"] = source
+    return _render_serialized_report(report_data), report_data
 
 
-def _render_claude_report(report: AnthropicAdminReport, starting_at: date, ending_at: date) -> html.Div:
+def _render_claude_report(
+    report: AnthropicAdminReport,
+    starting_at: date,
+    ending_at: date,
+    *,
+    source: str = "live",
+) -> html.Div:
     report_data = _serialize_report(report, starting_at, ending_at)
+    report_data["source"] = source
+    return _render_serialized_report(report_data)
+
+
+def _is_cached_live_report(report_data: Any) -> bool:
+    return (
+        isinstance(report_data, dict)
+        and report_data.get("source") == "live"
+        and isinstance(report_data.get("starting_at"), str)
+        and isinstance(report_data.get("ending_at"), str)
+        and isinstance(report_data.get("allocation_rows"), list)
+        and isinstance(report_data.get("cost_rows"), list)
+    )
+
+
+def _render_serialized_report(report_data: dict[str, Any]) -> html.Div:
     clients = ClientRepository().list_clients()
     assignment_rows = _assignment_rows(report_data, clients)
     filter_options = _report_filter_options(report_data, clients)
+    source = report_data.get("source", "live")
+    starting_at = report_data["starting_at"]
+    ending_at = report_data["ending_at"]
 
     return html.Div(
         [
             dcc.Store(id="anthropic-report-data", data=report_data),
             dcc.Store(id="anthropic-assignment-version", data=0),
             html.P(
-                f"Report loaded for {starting_at.isoformat()} through {ending_at.isoformat()} (UTC).",
+                ("Historical database report" if source == "historical" else "Live Admin API report")
+                + f" loaded for {starting_at} through {ending_at} (UTC).",
                 className="small text-muted",
             ),
             html.Div(
@@ -264,11 +495,7 @@ def _render_claude_report(report: AnthropicAdminReport, starting_at: date, endin
                             dbc.CardBody(
                                 [
                                     _chart_metric_control(),
-                                    dcc.Graph(
-                                        id="anthropic-over-time-chart",
-                                        figure=go.Figure(),
-                                        config={"displaylogo": False, "responsive": True},
-                                    ),
+                                    _anthropic_over_time_graph(),
                                 ]
                             ),
                             className="content-card mb-4",
@@ -505,13 +732,29 @@ def _analysis_kpis(
 def _enriched_allocation_rows(report_data: dict[str, Any]) -> list[dict[str, Any]]:
     key_names = {key["id"]: key["name"] for key in report_data.get("api_keys", [])}
     workspace_names = {workspace["id"]: workspace["name"] for workspace in report_data.get("workspaces", [])}
-    assignments = {
-        assignment.api_key_id: assignment for assignment in AnthropicAssignmentRepository().list_assignments()
-    }
+    assignment_repository = AnthropicAssignmentRepository()
+    assignments = {assignment.api_key_id: assignment for assignment in assignment_repository.list_assignments()}
+    periods_by_key: dict[str, list[Any]] = defaultdict(list)
+    if report_data.get("source") == "historical":
+        for period in assignment_repository.list_assignment_periods():
+            periods_by_key[period.api_key_id].append(period)
     rows: list[dict[str, Any]] = []
     for raw_row in report_data.get("allocation_rows", []):
         row = dict(raw_row)
-        assignment = assignments.get(row["api_key_id"])
+        key_periods = periods_by_key.get(row["api_key_id"], [])
+        if key_periods:
+            row_date = date.fromisoformat(row["date"])
+            assignment = next(
+                (
+                    period
+                    for period in key_periods
+                    if period.effective_from <= row_date
+                    and (period.effective_to is None or row_date <= period.effective_to)
+                ),
+                None,
+            )
+        else:
+            assignment = assignments.get(row["api_key_id"])
         row.update(
             {
                 "api_key_name": key_names.get(row["api_key_id"], row["api_key_id"]),
@@ -552,6 +795,13 @@ def _filter_allocation_rows(
 
 
 def _aggregate_allocation_rows(rows: list[dict[str, Any]], group_by: str) -> list[dict[str, Any]]:
+    token_columns = {
+        "uncached_input_tokens",
+        "cache_creation_tokens",
+        "cache_read_tokens",
+        "output_tokens",
+        "total_tokens",
+    }
     totals: dict[str, dict[str, Any]] = defaultdict(
         lambda: {
             "uncached_input_tokens": 0,
@@ -576,7 +826,11 @@ def _aggregate_allocation_rows(rows: list[dict[str, Any]], group_by: str) -> lis
     return [
         {
             GROUP_LABELS[group_by].lower().replace(" ", "_"): label,
-            **{key: value for key, value in total.items() if key != "allocated_cost_usd"},
+            **{
+                key: _format_thousands(value) if key in token_columns else value
+                for key, value in total.items()
+                if key != "allocated_cost_usd"
+            },
             "allocated_cost_usd": _format_usd(total["allocated_cost_usd"]),
         }
         for label, total in sorted(totals.items())
@@ -612,15 +866,18 @@ def _token_usage_figure(rows: list[dict[str, Any]], group_by: str):
         for row in rows
     ]
     frame = pd.DataFrame(chart_rows).groupby(["date", "group"], as_index=False)["tokens"].sum()
+    frame["tokens_thousands"] = frame["tokens"].map(lambda value: f"{value / 1000:,.0f}k")
     figure = px.bar(
         frame,
         x="date",
         y="tokens",
         color="group",
+        custom_data=["tokens_thousands"],
         barmode="stack",
         title="Token usage over time",
         labels={"date": "Date (UTC)", "tokens": "Tokens", "group": GROUP_LABELS[group_by]},
     )
+    figure.update_traces(hovertemplate="%{fullData.name}<br>Tokens=%{customdata[0]}<extra></extra>")
     figure.update_layout(hovermode="x unified", legend_title_text=GROUP_LABELS[group_by])
     chronological_dates = sorted(frame["date"].unique())
     figure.update_xaxes(type="category", categoryorder="array", categoryarray=chronological_dates)
@@ -646,7 +903,7 @@ def _cost_over_time_figure(rows: list[dict[str, Any]], group_by: str):
         title="Allocated cost over time",
         labels={"date": "Date (UTC)", "cost_usd": "Cost (USD)", "group": GROUP_LABELS[group_by]},
     )
-    figure.update_traces(hovertemplate="$%{y:,.4f} USD<extra>%{fullData.name}</extra>")
+    figure.update_traces(hovertemplate="%{fullData.name}<br>Cost (USD)=$%{y:,.2f}<extra></extra>")
     figure.update_layout(hovermode="x unified", legend_title_text=GROUP_LABELS[group_by])
     figure.update_yaxes(tickprefix="$", tickformat=",.2f")
     chronological_dates = sorted(frame["date"].unique())
@@ -754,6 +1011,15 @@ def _chart_metric_control() -> html.Div:
     )
 
 
+def _anthropic_over_time_graph() -> dcc.Graph:
+    return dcc.Graph(
+        id="anthropic-over-time-chart",
+        figure=go.Figure(),
+        config={"displaylogo": False, "responsive": True},
+        style={"height": "32rem", "minHeight": "32rem"},
+    )
+
+
 def _assignment_rows(report_data: dict[str, Any], clients: list[Any]) -> list[dict[str, Any]]:
     assignments = {
         assignment.api_key_id: assignment for assignment in AnthropicAssignmentRepository().list_assignments()
@@ -841,6 +1107,10 @@ def _decimal(value: Any) -> Decimal:
 
 def _format_usd(value: Decimal) -> str:
     return f"${value:,.2f} USD"
+
+
+def _format_thousands(value: int) -> str:
+    return f"{value / 1000:,.1f}k"
 
 
 def _usage_rows(repo: SeedRepository, reference_repository: ClientRepository | None = None) -> list[dict]:

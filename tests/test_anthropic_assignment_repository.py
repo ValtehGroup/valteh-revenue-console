@@ -1,4 +1,4 @@
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -54,3 +54,7 @@ def test_assignment_can_be_saved_reassigned_and_removed() -> None:
 
     repository.save_assignments([AnthropicKeyAssignmentCommand("apikey_abc123", None, None)])
     assert repository.list_assignments() == []
+    periods = repository.list_assignment_periods()
+    assert [(period.environment, period.client_id) for period in periods] == [("development", 1)]
+    assert periods[0].effective_from == date(2026, 7, 1)
+    assert periods[0].effective_to == date.today() - timedelta(days=1)

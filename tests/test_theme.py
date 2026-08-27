@@ -174,6 +174,7 @@ def test_theme_toggle_and_local_store_are_in_the_app_shell() -> None:
     components = {getattr(component, "id", None): component for component in _walk(app_layout())}
 
     assert components["theme-store"].storage_type == "local"
+    assert components["anthropic-live-report-cache"].storage_type == "session"
     assert components["theme-toggle"].type == "button"
     toggle_props = components["theme-toggle"].to_plotly_json()["props"]
     assert toggle_props["aria-label"]
@@ -225,3 +226,11 @@ def test_claude_report_date_range_uses_theme_colors() -> None:
     assert ".dash-datepicker-input" in css
     assert "background: var(--color-surface) !important" in css
     assert "color: var(--color-text) !important" in css
+
+
+def test_anthropic_tabs_use_theme_aware_active_colors() -> None:
+    css = (ASSETS_DIR / "20_components.css").read_text(encoding="utf-8")
+
+    assert "#anthropic-report-tabs .nav-link.active" in css
+    assert "background: var(--color-primary)" in css
+    assert "color: var(--color-primary-contrast)" in css

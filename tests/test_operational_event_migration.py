@@ -6,8 +6,8 @@ from alembic import command
 from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
 
-REVISION = "20260730_07"
-MIGRATION_FILE = "20260730_07_operational_event_integration.py"
+REVISION = "20260827_08"
+MIGRATION_FILE = "20260827_08_anthropic_history.py"
 
 
 def _upgrade(repo_root: Path, database_url: str) -> None:
@@ -53,3 +53,25 @@ def test_console_and_api_accept_the_same_alembic_revision_chain(tmp_path: Path) 
     engine = sa.create_engine(database_url)
     with engine.connect() as connection:
         assert MigrationContext.configure(connection).get_current_revision() == REVISION
+
+
+def test_anthropic_history_migration_creates_unique_provider_fact_schema(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{(tmp_path / 'anthropic-history.db').as_posix()}"
+    _upgrade(Path(__file__).resolve().parents[1], database_url)
+    inspector = sa.inspect(sa.create_engine(database_url))
+
+    assert {
+        "anthropic_api_keys",
+        "anthropic_api_key_assignments",
+        "anthropic_cost_daily",
+        "anthropic_sync_runs",
+        "anthropic_sync_watermarks",
+        "anthropic_usage_daily",
+        "anthropic_workspaces",
+    } <= set(inspector.get_table_names())
+    assert "uq_anthropic_usage_daily_identity" in {
+        constraint["name"] for constraint in inspector.get_unique_constraints("anthropic_usage_daily")
+    }
+    assert "uq_anthropic_cost_daily_identity" in {
+        constraint["name"] for constraint in inspector.get_unique_constraints("anthropic_cost_daily")
+    }

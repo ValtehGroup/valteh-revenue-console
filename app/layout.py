@@ -52,6 +52,7 @@ def app_layout() -> html.Div:
         [
             dcc.Location(id="url"),
             theme_store(),
+            dcc.Store(id="anthropic-live-report-cache", storage_type="session"),
             sidebar,
             html.Main(id="page-content", className="content"),
         ],

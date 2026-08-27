@@ -2,6 +2,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     CheckConstraint,
     Date,
@@ -270,4 +271,165 @@ class EventImportCursorORM(Base):
     last_occurred_at: Mapped[datetime | None] = mapped_column(DateTime)
     last_successful_sync_at: Mapped[datetime | None] = mapped_column(DateTime)
     status: Mapped[str] = mapped_column(String(20), default="ok")
+    error_message: Mapped[str | None] = mapped_column(Text)
+
+
+class AnthropicUsageDailyORM(Base):
+    """Immutable-grain daily usage facts returned by Anthropic."""
+
+    __tablename__ = "anthropic_usage_daily"
+    __table_args__ = (
+        UniqueConstraint(
+            "bucket_date",
+            "api_key_id",
+            "workspace_id",
+            "model",
+            "service_tier",
+            name="uq_anthropic_usage_daily_identity",
+        ),
+        Index("ix_anthropic_usage_daily_date", "bucket_date"),
+        Index("ix_anthropic_usage_daily_api_key_date", "api_key_id", "bucket_date"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    bucket_date: Mapped[date] = mapped_column(Date, nullable=False)
+    api_key_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    workspace_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    model: Mapped[str] = mapped_column(String(160), nullable=False)
+    service_tier: Mapped[str] = mapped_column(String(80), nullable=False)
+    uncached_input_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    cache_creation_1h_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    cache_creation_5m_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    cache_read_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    output_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    web_search_requests: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class AnthropicCostDailyORM(Base):
+    """Daily billed-cost facts in provider currency, before API-key allocation."""
+
+    __tablename__ = "anthropic_cost_daily"
+    __table_args__ = (
+        UniqueConstraint(
+            "bucket_date",
+            "workspace_id",
+            "description",
+            "model",
+            "cost_type",
+            "token_type",
+            "currency",
+            name="uq_anthropic_cost_daily_identity",
+        ),
+        Index("ix_anthropic_cost_daily_date", "bucket_date"),
+        Index("ix_anthropic_cost_daily_workspace_date", "workspace_id", "bucket_date"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    bucket_date: Mapped[date] = mapped_column(Date, nullable=False)
+    workspace_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    description: Mapped[str] = mapped_column(String(400), nullable=False)
+    model: Mapped[str] = mapped_column(String(160), nullable=False)
+    cost_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    token_type: Mapped[str] = mapped_column(String(120), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(24, 12), nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="USD")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class AnthropicAPIKeyORM(Base):
+    __tablename__ = "anthropic_api_keys"
+
+    api_key_id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    status: Mapped[str] = mapped_column(String(40), nullable=False)
+    workspace_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    partial_key_hint: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class AnthropicWorkspaceORM(Base):
+    __tablename__ = "anthropic_workspaces"
+
+    workspace_id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class AnthropicAPIKeyAssignmentORM(Base):
+    """Date-effective client and environment ownership for an Anthropic API key."""
+
+    __tablename__ = "anthropic_api_key_assignments"
+    __table_args__ = (
+        UniqueConstraint("api_key_id", "effective_from", name="uq_anthropic_api_key_assignment_start"),
+        CheckConstraint(
+            "environment IN ('development', 'staging', 'production', 'internal')",
+            name="ck_anthropic_api_key_assignments_environment",
+        ),
+        CheckConstraint(
+            "effective_to IS NULL OR effective_to >= effective_from",
+            name="ck_anthropic_api_key_assignments_dates",
+        ),
+        Index(
+            "ix_anthropic_api_key_assignments_key_dates",
+            "api_key_id",
+            "effective_from",
+            "effective_to",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    api_key_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    environment: Mapped[str] = mapped_column(String(40), nullable=False)
+    client_id: Mapped[int] = mapped_column(ForeignKey("clients.id"), nullable=False)
+    effective_from: Mapped[date] = mapped_column(Date, nullable=False)
+    effective_to: Mapped[date | None] = mapped_column(Date)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class AnthropicSyncWatermarkORM(Base):
+    __tablename__ = "anthropic_sync_watermarks"
+    __table_args__ = (CheckConstraint("dataset IN ('usage', 'cost')", name="ck_anthropic_sync_watermarks_dataset"),)
+
+    dataset: Mapped[str] = mapped_column(String(20), primary_key=True)
+    last_complete_date: Mapped[date | None] = mapped_column(Date)
+    last_successful_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class AnthropicSyncRunORM(Base):
+    __tablename__ = "anthropic_sync_runs"
+    __table_args__ = (
+        CheckConstraint("mode IN ('bootstrap', 'incremental', 'repair')", name="ck_anthropic_sync_runs_mode"),
+        CheckConstraint("status IN ('succeeded', 'failed')", name="ck_anthropic_sync_runs_status"),
+        Index("ix_anthropic_sync_runs_started_at", "started_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    mode: Mapped[str] = mapped_column(String(20), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    requested_start_date: Mapped[date] = mapped_column(Date, nullable=False)
+    requested_end_date: Mapped[date] = mapped_column(Date, nullable=False)
+    completed_start_date: Mapped[date | None] = mapped_column(Date)
+    completed_end_date: Mapped[date | None] = mapped_column(Date)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    finished_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    usage_rows_fetched: Mapped[int] = mapped_column(nullable=False, default=0)
+    usage_rows_inserted: Mapped[int] = mapped_column(nullable=False, default=0)
+    usage_rows_updated: Mapped[int] = mapped_column(nullable=False, default=0)
+    cost_rows_fetched: Mapped[int] = mapped_column(nullable=False, default=0)
+    cost_rows_inserted: Mapped[int] = mapped_column(nullable=False, default=0)
+    cost_rows_updated: Mapped[int] = mapped_column(nullable=False, default=0)
+    previous_usage_watermark: Mapped[date | None] = mapped_column(Date)
+    resulting_usage_watermark: Mapped[date | None] = mapped_column(Date)
+    previous_cost_watermark: Mapped[date | None] = mapped_column(Date)
+    resulting_cost_watermark: Mapped[date | None] = mapped_column(Date)
+    total_usage_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    total_billed_cost: Mapped[Decimal] = mapped_column(Numeric(24, 12), nullable=False, default=0)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="USD")
     error_message: Mapped[str | None] = mapped_column(Text)
