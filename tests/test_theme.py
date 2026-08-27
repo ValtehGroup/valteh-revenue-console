@@ -202,3 +202,26 @@ def test_theme_callbacks_register_without_output_conflicts() -> None:
     assert sum(key == "theme-store.data" for key in app.callback_map) == 1
     assert any("theme-toggle.aria-label" in key for key in app.callback_map)
     assert any("theme-toggle.aria-pressed" in key for key in app.callback_map)
+    analysis_callback = next(
+        callback for key, callback in app.callback_map.items() if "anthropic-analysis-summary-content.children" in key
+    )
+    assert {"id": "theme-store", "property": "data"} not in analysis_callback["inputs"]
+
+
+def test_usage_page_is_preserved_when_only_the_theme_changes() -> None:
+    from app.routes import _preserve_page_on_theme_change
+
+    assert _preserve_page_on_theme_change("/usage", "theme-store", True) is True
+    assert _preserve_page_on_theme_change("/usage", "theme-store", False) is False
+    assert _preserve_page_on_theme_change("/usage", "url", True) is False
+    assert _preserve_page_on_theme_change("/costs", "theme-store", True) is False
+
+
+def test_claude_report_date_range_uses_theme_colors() -> None:
+    css = (ASSETS_DIR / "20_components.css").read_text(encoding="utf-8")
+
+    assert ".dash-datepicker," in css
+    assert ".dash-datepicker-input-wrapper," in css
+    assert ".dash-datepicker-input" in css
+    assert "background: var(--color-surface) !important" in css
+    assert "color: var(--color-text) !important" in css

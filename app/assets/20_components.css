@@ -444,6 +444,64 @@ label {
   border-top-color: var(--color-text-muted) !important;
 }
 
+#claude-report-range .DateRangePickerInput,
+#claude-report-range .DateInput,
+#claude-report-range .DateInput_input {
+  background: var(--color-surface) !important;
+  color: var(--color-text) !important;
+}
+
+#claude-report-range .DateRangePickerInput {
+  border-color: var(--color-border-strong) !important;
+}
+
+#claude-report-range .DateInput_input__focused {
+  border-bottom-color: var(--color-focus) !important;
+}
+
+#claude-report-range .DateRangePickerInput_arrow_svg {
+  fill: var(--color-text-muted) !important;
+}
+
+.dash-datepicker,
+.dash-datepicker-input-wrapper,
+.dash-datepicker-input {
+  background: var(--color-surface) !important;
+  color: var(--color-text) !important;
+}
+
+.dash-datepicker-input-wrapper,
+.dash-datepicker-input {
+  border-color: var(--color-border-strong) !important;
+}
+
+.dash-datepicker-range-arrow,
+.dash-datepicker-caret-icon {
+  color: var(--color-text-muted) !important;
+}
+
+.anthropic-chart-toggle .btn {
+  background: var(--color-surface);
+  border-color: var(--color-border-strong);
+  color: var(--color-text);
+}
+
+.anthropic-chart-toggle .btn:hover,
+.anthropic-chart-toggle .btn.active {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-primary-contrast);
+}
+
+.anthropic-chart-toolbar {
+  align-items: center;
+  display: flex;
+  gap: var(--space-3);
+  margin-bottom: calc(var(--space-3) * -1);
+  position: relative;
+  z-index: 2;
+}
+
 /* Dash 4 dropdowns use their own component variables rather than legacy Select classes. */
 .dash-dropdown,
 .dash-dropdown-content {
@@ -684,6 +742,14 @@ label {
 .js-plotly-plot .modebar-btn:hover path,
 .js-plotly-plot .modebar-btn.active path {
   fill: var(--color-primary) !important;
+}
+
+.js-plotly-plot text {
+  fill: var(--color-text) !important;
+}
+
+.js-plotly-plot .gridlayer path {
+  stroke: var(--color-border) !important;
 }
 
 .costs-page-header {
