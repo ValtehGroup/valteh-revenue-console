@@ -11,7 +11,7 @@ import pandas as pd
 from sqlalchemy import or_, select
 
 from app.config import BASE_DIR, get_settings
-from app.domain.cost_engine import calculate_variable_cost, is_cost_effective, monthly_cost_amounts
+from app.domain.cost_engine import calculate_variable_cost, is_cost_effective, monthly_cost_amounts, normalize_cost_unit
 from app.domain.models import (
     Client,
     ClientProfitability,
@@ -315,7 +315,7 @@ class SeedRepository:
         rates: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
         for item in self.cost_items():
             if item.cost_type == "variable" and is_cost_effective(item, as_of):
-                rates[item.unit] += Decimal(str(item.unit_cost))
+                rates[normalize_cost_unit(item.unit)] += Decimal(str(item.unit_cost))
         return dict(rates)
 
     def monthly_cost_amounts(self, month: str):

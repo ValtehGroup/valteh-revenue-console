@@ -7,6 +7,7 @@ from app.domain.cost_engine import (
     CostOverlapError,
     calculate_fixed_costs,
     calculate_variable_cost,
+    monthly_cost_amounts,
     resolve_effective_cost_items,
 )
 from app.domain.models import CostItem, UsageEvent
@@ -208,6 +209,38 @@ def test_usage_cost_sums_multiple_cost_components_for_same_event_type() -> None:
     ]
 
     assert calculate_variable_cost(usage, rates) == Decimal("10.50")
+
+
+def test_saremi_validation_cost_groups_ine_curp_and_rfc_events() -> None:
+    usage = [
+        UsageEvent(
+            id=index,
+            client_id=1,
+            service_code="saremi",
+            event_type=event_type,
+            quantity=Decimal("100"),
+            unit="validation",
+            event_timestamp=datetime(2026, 8, 10),
+            source_system="test",
+        )
+        for index, event_type in enumerate(
+            ("saremi.ine_validation", "saremi.curp_validation", "saremi.rfc_validation"),
+            start=1,
+        )
+    ]
+    rate = _cost(
+        cost_key="operations.saremi_validation",
+        name="SAREMI validation",
+        cost_type="variable",
+        charge_basis="usage",
+        unit="saremi.validation",
+        unit_cost=Decimal("0.90"),
+        billing_frequency="usage",
+        start_date=date(2026, 8, 1),
+    )
+
+    assert calculate_variable_cost(usage, [rate]) == Decimal("270.00")
+    assert monthly_cost_amounts([rate], date(2026, 8, 1), usage)[0].amount == Decimal("270.00")
 
 
 def test_resolver_rejects_overlapping_versions_for_same_cost_key() -> None:

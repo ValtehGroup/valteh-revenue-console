@@ -1,422 +1,167 @@
-# Valteh Revenue Console — Costs and Clients User Guide
+# Valteh Revenue Console — User Guide
 
-This guide explains how dashboard users maintain Costs and Clients, what each
-table column means, how historical changes are preserved, and which operations
-are intentionally unavailable.
+Use this dashboard to review Valteh's operating economics and maintain clients and costs. Amounts are management
+accounting values calculated from plans, usage, and costs. A revenue event does **not** confirm that an invoice was sent
+or that a customer deposited funds.
 
 ## In this guide
 
 - [General interaction](#general-interaction)
-- [Costs](#costs)
-  - [What the Costs tab represents](#what-the-costs-tab-represents)
-  - [Add a cost](#add-a-cost)
-  - [Modify a cost](#modify-a-cost)
-  - [What users cannot do with costs](#what-users-cannot-do-with-costs)
-  - [Cost fields and table columns](#cost-fields-and-table-columns)
-  - [Cost examples](#cost-examples)
+- [Executive Dashboard](#executive-dashboard)
 - [Clients](#clients)
-  - [What the Clients tab represents](#what-the-clients-tab-represents)
-  - [Add a client](#add-a-client)
-  - [Modify a client](#modify-a-client)
-  - [What users cannot do with clients](#what-users-cannot-do-with-clients)
-  - [Client table columns](#client-table-columns)
-  - [Client Detail behavior](#client-detail-behavior)
-  - [Client examples](#client-examples)
-- [Operational usage](#operational-usage)
+- [Costs](#costs)
+- [Pricing](#pricing)
+- [Usage](#usage)
+- [Scenarios](#scenarios)
 - [Quick decision guide](#quick-decision-guide)
 
 ## General interaction
 
-- Click anywhere on a table row to select it. The highlighted row is the active
-  record for the action buttons above the table.
-- Filters and period selections are retained while navigating between tabs in
-  the same browser session.
-- Dates use `YYYY-MM-DD` format.
-- Save operations reject stale data. If another user changed the same record,
-  refresh the page, review the latest values, and try again.
-- Use lifecycle dates and versioning for normal business changes. Deactivation
-  is reserved for records that should not participate in calculations.
+- Use the left sidebar to change pages and switch between light and dark mode.
+- Click a table row before using actions such as Edit, Change, End, or Deactivate.
+- Dates use `YYYY-MM-DD`; Anthropic reports use UTC dates.
+- Dropdown and chart selections are retained during the browser session where supported.
+- If a save says another user changed the record, refresh and review the latest values before retrying.
+- Preserve history with effective dates. Use deletion only for a specifically verified accidental record.
 
-## Costs
+## Executive Dashboard
 
-### What the Costs tab represents
+Select a month to review revenue, fixed and variable costs, operating margin, burn rate, break-even usage, active
+clients, and service-line performance.
 
-The Costs dashboard reports realized operating costs in MXN. The Costs Table is
-the maintained catalog behind those calculations. A cost can have multiple
-dated versions so past months keep the values that were valid at that time.
+Click **Monthly Revenue** to switch between the total and its fixed-subscription/usage split. Client profitability and
+alerts use the selected accounting month.
 
-Only records with `Record Type = actual` participate in realized costs and
-margins. Estimate records remain visible in the table but do not affect actual
-financial results.
-
-### Add a cost
-
-1. Open the **Costs** tab and expand **Costs Table** if necessary.
-2. Click **Add cost**.
-3. Enter the descriptive fields: Name, Provider, Category, and Service Line.
-4. Select the Charge Basis and Billing Frequency.
-5. Enter Quantity, Unit Cost, Currency, and Unit.
-6. Select the Record Type.
-7. Enter the Start Date and, if known, an optional End Date.
-8. Add Notes that explain the source or assumption.
-9. Click **Save**.
-
-The dashboard derives Cost Type from Billing Frequency:
-
-- `usage` frequency creates a variable cost.
-- `monthly`, `annual`, or `once` creates a fixed cost.
-
-The generated Cost Key is internal and hidden from the table. It identifies the
-same business cost across historical versions.
-
-### Modify a cost
-
-Select the applicable row and choose the action that matches the change.
-
-#### Edit metadata
-
-Use **Edit metadata** to correct:
-
-- Name
-- Provider
-- Category
-- Service Line
-- Start Date or End Date
-- Notes
-
-Start and End Date edits are lifecycle corrections and can change which months
-include the record. They cannot create an overlap with another active actual
-version of the same cost.
-
-Do not use Edit metadata to overwrite Quantity, Unit Cost, Currency, Unit,
-Billing Frequency, Charge Basis, or Record Type. Those fields affect financial
-meaning and require a new version.
-
-#### Change cost
-
-Use **Change cost** when the amount or financial configuration changes.
-
-1. Select the current version.
-2. Click **Change cost**.
-3. Enter **Effective from**.
-4. Enter the new Quantity, Unit Cost, Currency, Unit, Charge Basis, Billing
-   Frequency, and Record Type.
-5. Save.
-
-The dashboard atomically:
-
-- ends the selected version one day before the effective date;
-- creates a new row with a new ID and the same internal Cost Key; and
-- leaves all earlier months unchanged.
-
-The effective date must be after the selected version's Start Date and must fall
-within its current lifecycle. Overlapping active actual versions are rejected.
-
-#### End cost
-
-Use **End cost** for an ordinary cancellation or known end of service. The row
-remains enabled and continues to appear in historical calculations through its
-End Date. After that date its displayed status becomes **Ended**.
-
-#### Deactivate and Reactivate
-
-Use **Deactivate** only for a mistaken or invalid record. Deactivation keeps the
-row for audit purposes but immediately excludes it from economic calculations,
-regardless of its dates.
-
-Use **Reactivate** to restore a deactivated row without changing its dates.
-Reactivation is rejected if it would overlap another enabled actual version. If
-the restored row already has a past End Date, its table status returns to
-**Ended**, not Active.
-
-### What users cannot do with costs
-
-- The dashboard has no general Delete action. Normal history must be ended or
-  deactivated, not erased. Permanent deletion is an administrator-only cleanup
-  for a specifically verified accidental test record.
-- A historical financial value cannot be overwritten through Edit metadata.
-  Use Change cost to create a new dated version.
-- Active actual versions of the same Cost Key cannot overlap.
-- Variable costs cannot use monthly, annual, or once frequency.
-- Fixed costs cannot use usage frequency.
-- Negative Quantity or Unit Cost values are not accepted.
-- The dashboard currently accepts MXN and USD only. USD uses the configured
-  temporary rate of `1 USD = 18 MXN`; it is not a historical market FX rate.
-
-### Cost fields and table columns
-
-| Field or column | Meaning |
-| --- | --- |
-| ID | Four-digit identifier for one specific stored version, such as `0015`. A changed version receives a new ID. |
-| Name | Human-readable cost description. |
-| Status | **Active** is enabled and not past its End Date; **Ended** is enabled but past its End Date; **Inactive** is deactivated. |
-| Category | Reporting grouping such as Software, Infrastructure, People, or AI. |
-| Service Line | Product or shared area receiving the cost, such as SAREMI, Graphos, BaaS, SIGEN, or Shared. |
-| Provider | Supplier or internal provider responsible for the cost. |
-| Cost Type | Derived classification: fixed or variable. |
-| Frequency | Recognition rule: monthly, annual, usage, or once. |
-| Charge Basis | `flat`, `per_user`, or `usage`; describes what Quantity represents. |
-| Quantity | Number of configured units. Displayed as an integer in the table. |
-| Unit | Measurement unit. For a usage cost, this must match the usage event type, such as `saremi.document_validation`. |
-| Unit Cost | Cost of one unit, displayed in the entered Currency with two decimals. |
-| Currency | Original entered currency, currently MXN or USD. |
-| Base Amount | `Quantity × Unit Cost`, converted and displayed in MXN. This is the configured amount, not always the amount recognized in every month. |
-| Start Date | First date on which this version can apply. |
-| End Date | Last date on which this version can apply; blank means open-ended. |
-| Record Type | `actual` affects realized results; `estimate` is informational and represents a predicted or benchmark cost. |
-| Updated At | UTC audit timestamp of the most recent change. |
-| Notes | Source, rationale, assumptions, or operational context. |
-
-Recognition details:
-
-- Monthly fixed: recognizes the Base Amount in every effective month.
-- Annual fixed: recognizes the Base Amount in the anniversary month while the
-  record remains effective.
-- Once: recognizes the Base Amount only in the Start Date month.
-- Usage: recognizes recorded event quantity multiplied by the applicable unit
-  rate; the configured table Quantity is not the realized event volume.
-
-### Cost examples
-
-#### Example 1: Microsoft subscription price changes
-
-Assume four users cost `8 USD` each per month beginning July 1:
-
-- Charge Basis: `per_user`
-- Quantity: `4`
-- Unit Cost: `8.00`
-- Currency: `USD`
-- Unit: `user`
-- Frequency: `monthly`
-- Record Type: `actual`
-- Start Date: `2026-07-01`
-
-The Base Amount is `4 × 8 × 18 = 576 MXN`.
-
-If the provider raises the price to `10 USD` beginning September 1, select the
-current row and use **Change cost** with Effective from `2026-09-01`. The old
-version ends August 31 and the new version begins September 1. July and August
-remain `576 MXN`; September onward becomes `720 MXN`.
-
-#### Example 2: AI document-processing usage rate
-
-To charge `0.95 MXN` per processed document:
-
-- Charge Basis: `usage`
-- Quantity: `1`
-- Unit Cost: `0.95`
-- Currency: `MXN`
-- Unit: `saremi.document_validation`
-- Frequency: `usage`
-- Record Type: `actual`
-
-If 1,000 matching usage events are recorded in a month, the realized cost is
-`1,000 × 0.95 = 950 MXN`.
+Revenue is recognized from effective pricing subscriptions and billable usage. It is not a cash-receipts report.
 
 ## Clients
 
-### What the Clients tab represents
+The Clients page keeps one durable identity per customer. Pricing subscriptions, usage, revenue calculations, and
+external references remain attached to that client.
 
-One client record represents one durable customer identity. Pricing plans are
-stored as dated subscriptions beneath that identity. Usage, revenue, plan
-changes, and lifecycle history remain attached to the same client ID.
+### Common actions
 
-Real clients receive IDs such as `client_0001`. Designated dashboard test
-clients use IDs such as `test_0002`.
+- **Add client:** enter the client details, initial reusable pricing plan, and optionally an external source reference.
+- **Edit client:** correct the name, type, start date, or notes. The Client ID cannot change.
+- **Change pricing plan:** select a new plan and effective date. The prior subscription ends the day before the new one
+  starts, preserving earlier periods.
+- **(De)activate client:** end or resume the client lifecycle without deleting history. Reactivation does not restore a
+  pricing plan automatically.
+- **Add reference:** map another system's customer or tenant identifier to this client. This is not an API key.
 
-### Add a client
+Dedicated ad-hoc pricing plans appear only for their assigned client and cannot be reused for another customer.
 
-1. Open the **Clients** tab.
-2. Click **Add client**.
-3. Enter Name, Client Type, Start Date, and optional Notes.
-4. Select the initial Pricing Plan. Options come from the maintained Pricing
-   Plans catalog.
-5. Optionally add a Source System and External Client Reference together.
-6. Click **Save**.
+### Client Detail
 
-The client and initial pricing-plan subscription are saved in one transaction.
-The subscription starts on the client's Start Date. A new real-client ID is
-generated automatically and cannot be edited.
+Choose a client and period to inspect usage, revenue, costs, and operating margin. The foldable **Usage Events** and
+**Invoices / Revenue Events** tables show the client's complete available history, not only the selected month.
 
-### Modify a client
+Revenue events are derived from dated subscriptions and usage. If a calculated event is wrong, correct its underlying
+subscription or usage record; do not interpret the row as payment confirmation.
 
-#### Edit client
+The normal workflow has no Delete client action. Deactivate clients that leave and reactivate the same record if they
+return.
 
-Use **Edit client** to change Name, Client Type, Start Date, or Notes.
+## Costs
 
-The Client ID is permanent. A Start Date cannot be moved later than existing
-subscription, usage, or revenue history, and cannot be after the End Date.
+The top of the Costs page summarizes the selected month and year. Expand **Costs Table** to maintain the catalog.
 
-#### Change pricing plan
+Only `actual` records affect realized costs and margins. `estimate` records remain visible for reference but are
+excluded from actual results.
 
-Use **Change pricing plan** for an active client moving from one commercial plan
-to another.
+### Choose the correct action
 
-1. Select the client row.
-2. Click **Change pricing plan**.
-3. Select the new plan.
-4. Enter Effective from.
-5. Save.
+- **Add cost:** create a new cost concept.
+- **Edit metadata:** correct descriptive fields, notes, or lifecycle dates without changing the financial terms.
+- **Change cost:** create a dated version when quantity, unit cost, currency, unit, basis, frequency, or record type
+  changes. Earlier months remain unchanged.
+- **End cost:** set the ordinary last effective date.
+- **Deactivate:** exclude an invalid record while retaining it for audit.
+- **Reactivate:** restore a valid deactivated record when it will not overlap another actual version.
 
-The dashboard atomically ends the applicable prior subscription one day before
-the effective date and creates the new subscription. Client ID and all prior
-subscription, usage, revenue, and margin history are preserved. The effective
-date must be after existing or scheduled subscription Start Dates, and the same
-currently effective plan cannot be selected again.
+Recognition rules:
 
-#### Deactivate and Reactivate client
-
-The **(De)activate client** button changes behavior based on Client Status.
-
-- For an active client, enter an effective deactivation date. The client End
-  Date is set, active subscriptions are ended, and status becomes Inactive.
-- For an inactive client, the action reactivates the client and clears its End
-  Date.
-
-Reactivation does not recreate or reactivate a pricing subscription. After
-reactivation, use **Change pricing plan** to assign the appropriate new plan if
-needed.
-
-Deactivation retains all historical usage, revenue, subscriptions, and external
-references.
-
-#### External references
-
-External references map a client identity used by another system to the local
-client record.
-
-- **Add reference** creates a mapping for a Source System and External Client
-  Reference.
-- **Deactivate reference** disables the mapping but retains it for audit.
-
-Example: if SAREMI sends `client_reference = notaria-38-qro`, use:
-
-- Source System: `saremi`
-- External Client Reference: `notaria-38-qro`
-
-This value is a customer, tenant, or organization identifier. It is not an API
-key or credential. The same external value may be used by different source
-systems, but the `(Source System, External Client Reference)` pair must be
-unique.
-
-### What users cannot do with clients
-
-- Client ID cannot be edited or reused for another customer.
-- A plan change does not create a second client; the original client must be
-  retained.
-- The dashboard has no general Delete client action. Deactivation is the normal
-  lifecycle operation. Permanent deletion is administrator-only cleanup for a
-  specifically verified accidental record with no business history.
-- Inactive clients cannot change pricing plan until they are reactivated.
-- Reactivation does not restore an old plan automatically.
-- Pricing-plan definitions cannot be edited from the Clients table; they come
-  from the Pricing Plans catalog.
-- Existing usage, revenue, or subscription history cannot be silently deleted
-  through Edit client or Deactivate.
-
-### Client table columns
-
-| Column | Meaning |
+| Frequency | Recognition |
 | --- | --- |
-| Client ID | Permanent public identifier, such as `client_0001` or `test_0002`. |
-| Client Name | Customer's display name. |
-| Client Type | Business classification such as notary or enterprise. |
-| Client Status | Current lifecycle status: active or inactive. |
-| Start Date | Beginning of the client relationship. |
-| End Date | Effective end of the relationship; blank for an active open-ended client. |
-| Pricing Plan | Plan effective for the dashboard's current reporting month, or **No active plan**. |
-| Monthly Revenue | Subscription plus billable usage revenue for the current reporting month. |
-| Monthly Usage | Sum of the client's usage quantities for the current reporting month. |
-| Monthly Variable Cost | Usage-driven costs attributed to the client for the month. |
-| Allocated Fixed Cost | Equal share of the month's fixed costs allocated among economically active clients. |
-| Operating Margin | Monthly Revenue minus Monthly Variable Cost and Allocated Fixed Cost. |
-| Operating Margin Percentage | Operating Margin divided by Monthly Revenue; zero when revenue is zero. |
-| Alerts | Inactive, No active plan, No usage recorded, Low margin, High usage, or OK. |
-| Created At | UTC audit timestamp for creation. |
-| Updated At | UTC audit timestamp for the latest client change. |
-| Notes | Internal operational or commercial context. |
+| `monthly` | Every effective month |
+| `annual` | Effective anniversary month |
+| `once` | Start-date month only |
+| `usage` | Matching event quantity × unit cost |
 
-The Clients table economics use the latest dashboard reporting month. Use the
-Client Detail Period selector to inspect a particular month.
+For usage costs, **Unit** must match the operational event type, for example `saremi.document_validation`. Costs are
+reported in MXN; entered USD costs currently use the configured static conversion rate.
 
-### Client Detail behavior
+There is no general Delete cost action. End normal contracts and deactivate mistaken records.
 
-- Client and Period selectors are independent of the Executive Dashboard month.
-- Usage, Revenue, and Cost by Service charts use the selected Period.
-- Historical Usage and Margin trends cover the complete available timeline.
-- Foldable Usage Events and Invoices / Revenue Events sections show the client's
-  complete available history, not only the selected Period.
+## Pricing
 
-### Client examples
+The page starts with **Pricing Plans**, where you can compare setup, annual and monthly fees, included usage, and unit
+prices.
 
-#### Example 1: Pilot client moves to SIGEN Go
+Below the catalog, **Pricing Simulator and Sensitivity** models one potential client:
 
-Notaria 38 remains `client_0001` throughout the relationship:
+1. Select a plan.
+2. Choose whether to include its one-time setup fee.
+3. Enter expected usage, allocated fixed costs, price/cost multipliers, and target margin.
+4. Review revenue, costs, operating margin, minimum document price, the operating-margin chart, and sensitivity table.
 
-1. Its Pilot subscription runs through `2026-08-31`.
-2. Select Notaria 38 and click **Change pricing plan**.
-3. Select **SIGEN Go** with Effective from `2026-09-01`.
-4. Save.
+The simulator is analytical only. Changing its inputs does not edit the plan, client, or database.
 
-The dashboard ends Pilot on August 31 and starts SIGEN Go on September 1. August
-reports continue using Pilot, September reports use SIGEN Go, and all history
-remains attached to `client_0001`.
+## Usage
 
-#### Example 2: Client pauses and later returns
+The page contains Anthropic reporting followed by normalized operational usage.
 
-1. Deactivate the active client with the last service date.
-2. Historical data remains available in Client Detail.
-3. When the client returns, select the inactive row and use **(De)activate
-   client** to reactivate it.
-4. Use **Change pricing plan** to assign a new plan and effective date.
+### Historical Anthropic report
 
-Do not add the returning customer as a new client.
+- Shows all usage and cost history already stored in the database.
+- **Update history** imports complete UTC days since the latest successful sync and refreshes a small recent overlap.
+- Repeated updates are idempotent and do not duplicate usage or costs.
+- No date range is needed because the report displays the complete persisted history.
 
-## Operational usage
+### Live Admin API report
 
-Operational usage originates in source products such as BAAS and RPP, but only
-`valteh-revenue-api` connects to those products. The API imports each raw event,
-classifies it, and writes recognized normalized usage to the shared database.
-The console reads that same `usage_events` table for Client Detail, historical
-usage, service charts, revenue, costs, and executive aggregates.
+- Select up to 31 days and click **Load Claude report**.
+- The result is temporary and is not added to historical storage.
+- The latest successful report remains available during the browser session until you load another one.
 
-A source event's `client_reference` is not assumed to be a console client ID.
-Operators map `(Source System, External Client Reference)` to the durable client
-using **Clients -> Add reference**. Source-system names are normalized to
-lowercase; the external reference is trimmed but is otherwise an exact match.
+Both reports support filters for workspace, API key, model, environment, and client. **Group by** controls the chart
+and summary table. Use **Usage / Cost** to change the metric and **Daily / Monthly / Yearly** to aggregate the timeline.
 
-An imported event may not appear as usage when:
+Anthropic reports usage by API key but does not provide billed cost at that same level. The dashboard allocates cost
+proportionally using matching workspace, model, and usage dimensions. Hover over **Allocated billed cost** for the
+current allocation disclaimer.
 
-- its operational status is not `succeeded` or `completed`;
-- its type is unsupported or intentionally internal/non-billable;
-- its factual quantity or unit is missing or incompatible; or
-- no enabled external client reference mapping exists.
+Use **Assign API keys to clients** to maintain environment and client ownership. The Admin API key always remains on
+the server and is never sent to the browser.
 
-The raw event remains in `imported_operational_events`. Operators can run the
-following commands from `valteh-revenue-api` to identify and retry work:
+### Operational usage
 
-```bash
-python -m app.integrations.sync_runner --status
-python -m app.integrations.sync_runner --classify-only
-```
+The final table shows normalized events received from Valteh products. If an expected event is missing, verify that its
+source status is successful, its type is supported, and its external client reference is mapped on the Clients page.
 
-`--status` shows the latest successful checkpoint per source and counts of
-imported, normalized, unresolved, skipped, and failed raw events. After fixing
-a client reference, use `--classify-only`; re-ingesting the source event is not
-required. Source URLs and tokens are configured only on the API deployment.
+## Scenarios
+
+Scenarios is a read-only six-month comparison of Base, Pessimistic, and Optimistic cases. The assumptions are displayed
+at the top of the page. Use the KPI cards, charts, and monthly table to compare revenue, costs, operating margin, and
+active clients.
+
+Scenario results do not modify pricing plans, costs, clients, or forecasts stored elsewhere.
 
 ## Quick decision guide
 
-| Situation | Correct action |
+| Situation | Action |
 | --- | --- |
-| Correct a cost name or provider | Edit metadata |
-| Cost price, quantity, frequency, unit, or currency changes | Change cost |
-| Cost contract normally ends | End cost |
-| Cost row was mistaken or invalid | Deactivate |
-| Restore a valid deactivated cost | Reactivate |
-| Add a new customer | Add client |
-| Correct client name, type, Start Date, or Notes | Edit client |
-| Existing client changes commercial plan | Change pricing plan |
-| Client relationship ends | (De)activate client → Deactivate |
-| Inactive client returns | (De)activate client → Reactivate, then assign a plan |
-| Connect an external product's tenant ID | Add reference |
+| Review current economics | Executive Dashboard → select month |
+| Correct a cost description | Costs → Edit metadata |
+| Change a cost amount or billing rule | Costs → Change cost |
+| End a normal cost contract | Costs → End cost |
+| Exclude an invalid cost | Costs → Deactivate |
+| Add a customer | Clients → Add client |
+| Existing customer changes plan | Clients → Change pricing plan |
+| Customer leaves or returns | Clients → (De)activate client |
+| Connect a product's tenant/customer ID | Clients → Add reference |
+| Compare plan terms | Pricing → Pricing Plans |
+| Test pricing assumptions | Pricing → Pricing Simulator and Sensitivity |
+| Review long-term Claude usage/cost | Usage → Historical |
+| Inspect a temporary recent Claude range | Usage → Live API |
+| Compare six-month outlooks | Scenarios |

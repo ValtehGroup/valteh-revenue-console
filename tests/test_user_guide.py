@@ -30,10 +30,22 @@ def test_user_guide_is_linked_and_renders_repository_markdown() -> None:
 
     assert guide_nav.className == "user-guide-nav"
     assert guide_content.className == "user-guide-content"
-    assert {link.href for link in nav_links} >= {"#general-interaction", "#costs", "#clients"}
+    assert {link.href for link in nav_links} >= {
+        "#general-interaction",
+        "#executive-dashboard",
+        "#clients",
+        "#costs",
+        "#pricing",
+        "#usage",
+        "#scenarios",
+        "#quick-decision-guide",
+    }
     assert all(component.link_target == "_blank" for component in markdown_components)
     assert "## Costs" in rendered_markdown
     assert "## Clients" in rendered_markdown
+    assert "## Pricing" in rendered_markdown
+    assert "## Usage" in rendered_markdown
+    assert "## Scenarios" in rendered_markdown
     assert "## In this guide" not in rendered_markdown
     assert "## In this guide" in user_guide.GUIDE_PATH.read_text(encoding="utf-8")
 
