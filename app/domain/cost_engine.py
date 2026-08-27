@@ -8,6 +8,20 @@ from decimal import Decimal
 from app.domain.models import CostItem, UsageEvent
 from app.domain.unit_economics import money
 
+SAREMI_VALIDATION_UNIT = "saremi.validation"
+_SAREMI_VALIDATION_EVENT_TYPES = {
+    SAREMI_VALIDATION_UNIT,
+    "saremi.ine_validation",
+    "saremi.curp_validation",
+    "saremi.rfc_validation",
+}
+
+
+def normalize_cost_unit(unit: str) -> str:
+    """Map equivalent usage events to the cost unit used for pricing."""
+
+    return SAREMI_VALIDATION_UNIT if unit in _SAREMI_VALIDATION_EVENT_TYPES else unit
+
 
 @dataclass(frozen=True)
 class CostAmount:
@@ -74,7 +88,7 @@ def calculate_variable_cost(
     total = Decimal("0")
     for event in usage_events:
         rates = _normalize_rates(cost_rates, event.event_timestamp)
-        rate = rates.get(event.event_type, Decimal("0"))
+        rate = rates.get(normalize_cost_unit(event.event_type), Decimal("0"))
         total += money(event.quantity) * money(rate)
     return total
 
@@ -117,7 +131,7 @@ def monthly_cost_amounts(
             event.event_timestamp,
             cost_types={"variable"},
         ):
-            if item.unit == event.event_type:
+            if normalize_cost_unit(item.unit) == normalize_cost_unit(event.event_type):
                 variable_by_item[item.id] = variable_by_item.get(item.id, Decimal("0")) + (
                     money(event.quantity) * money(item.unit_cost)
                 )
@@ -171,10 +185,14 @@ def _normalize_rates(
     when: date | datetime,
 ) -> dict[str, Decimal]:
     if isinstance(cost_rates, Mapping):
-        return {key: money(value) for key, value in cost_rates.items()}
+        rates: dict[str, Decimal] = {}
+        for unit, value in cost_rates.items():
+            key = normalize_cost_unit(unit)
+            rates[key] = rates.get(key, Decimal("0")) + money(value)
+        return rates
     rates: dict[str, Decimal] = {}
     for item in resolve_effective_cost_items(cost_rates, when, cost_types={"variable"}):
-        key = item.unit
+        key = normalize_cost_unit(item.unit)
         rates[key] = rates.get(key, Decimal("0")) + money(item.unit_cost)
     return rates
 

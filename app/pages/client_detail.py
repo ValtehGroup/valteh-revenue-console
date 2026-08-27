@@ -5,7 +5,7 @@ from dash import Input, Output, dcc, html
 from app.components.charts import bar_chart, line_chart
 from app.components.tables import data_table
 from app.data.repositories import SeedRepository
-from app.domain.cost_engine import calculate_variable_cost
+from app.domain.cost_engine import calculate_variable_cost, normalize_cost_unit
 from app.domain.revenue_engine import calculate_client_revenue
 from app.domain.unit_economics import calculate_operating_margin
 from app.utils.currency import format_mxn
@@ -118,7 +118,7 @@ def _client_detail_content(client_id: int | None, selected_month: str | None = N
     for event in usage:
         service_usage[event.service_code] = service_usage.get(event.service_code, 0) + float(event.quantity)
         service_cost[event.service_code] = service_cost.get(event.service_code, 0) + float(event.quantity) * float(
-            rates.get(event.event_type, 0)
+            rates.get(normalize_cost_unit(event.event_type), 0)
         )
         service_revenue[event.service_code] = service_revenue.get(event.service_code, 0) + (
             _event_price(event.event_type, plan) * float(event.quantity) if plan else 0

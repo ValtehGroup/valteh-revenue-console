@@ -315,7 +315,7 @@ def _simulation_input(values: dict) -> PricingSimulationInput:
         folios_per_client=_number(values.get("folios"), 0),
         fixed_costs=_number(values.get("fixed_costs"), 0),
         document_unit_cost=rates.get("saremi.document_validation", Decimal("0")),
-        validation_unit_cost=rates.get("saremi.ine_validation", Decimal("0")),
+        validation_unit_cost=rates.get("saremi.validation", Decimal("0")),
         graph_query_unit_cost=rates.get("graphos.query", Decimal("0")),
         blockchain_transaction_unit_cost=rates.get("blockchain.asiento_registration", Decimal("0")),
         folio_unit_cost=rates.get("blockchain.folio_mint", Decimal("0")),
