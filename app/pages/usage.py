@@ -8,6 +8,7 @@ from typing import Any
 import dash_bootstrap_components as dbc
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 from dash import Input, Output, State, dcc, html, no_update
 
 from app.components.chart_theme import apply_chart_theme
@@ -127,7 +128,9 @@ def register_callbacks(app) -> None:
         return _claude_report_content(starting_at, ending_at)
 
     @app.callback(
-        Output("anthropic-analysis-content", "children"),
+        Output("anthropic-analysis-summary-content", "children"),
+        Output("anthropic-over-time-chart", "figure"),
+        Output("anthropic-analysis-details-content", "children"),
         Input("anthropic-report-data", "data"),
         Input("anthropic-workspace-filter", "value"),
         Input("anthropic-api-key-filter", "value"),
@@ -135,6 +138,7 @@ def register_callbacks(app) -> None:
         Input("anthropic-environment-filter", "value"),
         Input("anthropic-client-filter", "value"),
         Input("anthropic-group-by", "value"),
+        Input("anthropic-chart-metric", "value"),
         Input("anthropic-assignment-version", "data"),
     )
     def update_analysis(
@@ -145,11 +149,12 @@ def register_callbacks(app) -> None:
         environment: str | None,
         client_id: str | int | None,
         group_by: str | None,
+        chart_metric: str | None,
         _assignment_version: int | None,
     ):
         if not report_data:
-            return dbc.Alert("Load a report to analyze usage.", color="secondary")
-        return _analysis_content(
+            return dbc.Alert("Load a report to analyze usage.", color="secondary"), go.Figure(), html.Div()
+        return _analysis_sections(
             report_data,
             workspace_id or ALL_FILTER_VALUE,
             api_key_id or ALL_FILTER_VALUE,
@@ -157,6 +162,7 @@ def register_callbacks(app) -> None:
             environment or ALL_FILTER_VALUE,
             client_id or ALL_FILTER_VALUE,
             group_by if group_by in GROUP_LABELS else "api_key",
+            chart_metric if chart_metric in {"usage", "cost"} else "usage",
         )
 
     @app.callback(
@@ -250,7 +256,28 @@ def _render_claude_report(report: AnthropicAdminReport, starting_at: date, endin
                 ],
                 className="d-flex flex-wrap gap-3 align-items-end mb-4",
             ),
-            dcc.Loading(html.Div(id="anthropic-analysis-content"), type="circle"),
+            dcc.Loading(
+                html.Div(
+                    [
+                        html.Div(id="anthropic-analysis-summary-content"),
+                        dbc.Card(
+                            dbc.CardBody(
+                                [
+                                    _chart_metric_control(),
+                                    dcc.Graph(
+                                        id="anthropic-over-time-chart",
+                                        figure=go.Figure(),
+                                        config={"displaylogo": False, "responsive": True},
+                                    ),
+                                ]
+                            ),
+                            className="content-card mb-4",
+                        ),
+                        html.Div(id="anthropic-analysis-details-content"),
+                    ]
+                ),
+                type="circle",
+            ),
             html.Hr(className="my-4"),
             html.H3("Assign API keys to clients", className="h5"),
             html.P(
@@ -377,7 +404,7 @@ def _serialize_report(report: AnthropicAdminReport, starting_at: date, ending_at
     }
 
 
-def _analysis_content(
+def _analysis_sections(
     report_data: dict[str, Any],
     workspace_id: str,
     api_key_id: str,
@@ -385,7 +412,8 @@ def _analysis_content(
     environment: str,
     client_id: str | int,
     group_by: str,
-) -> html.Div:
+    chart_metric: str = "usage",
+) -> tuple[html.Div | dbc.Row, go.Figure, html.Div]:
     rows = _enriched_allocation_rows(report_data)
     filtered_rows = _filter_allocation_rows(
         rows,
@@ -399,37 +427,52 @@ def _analysis_content(
     output_tokens = sum(int(row["output_tokens"]) for row in filtered_rows)
     web_searches = sum(int(row["web_search_requests"]) for row in filtered_rows)
     allocated_cost = sum((_decimal(row["allocated_cost_usd"]) for row in filtered_rows), Decimal("0"))
+    disclaimer = _allocation_disclaimer(report_data)
 
     if not filtered_rows:
-        return html.Div(
-            [
-                _analysis_kpis(0, 0, 0, Decimal("0")),
-                dbc.Alert("No usage matches the selected filters.", color="secondary"),
-            ]
+        return (
+            html.Div(
+                [
+                    _analysis_kpis(0, 0, 0, Decimal("0"), disclaimer),
+                    dbc.Alert("No usage matches the selected filters.", color="secondary"),
+                ]
+            ),
+            _empty_over_time_figure(),
+            html.Div(),
         )
 
     summary_rows = _aggregate_allocation_rows(filtered_rows, group_by)
     detail_rows = [_display_allocation_row(row) for row in filtered_rows]
-    return html.Div(
-        [
-            _analysis_kpis(input_tokens, output_tokens, web_searches, allocated_cost),
-            dbc.Alert(_allocation_explanation(report_data), color="info", className="mb-4"),
-            dbc.Card(
-                dbc.CardBody(
-                    dcc.Graph(
-                        id="anthropic-token-usage-chart",
-                        figure=_token_usage_figure(filtered_rows, group_by),
-                        config={"displaylogo": False, "responsive": True},
-                    )
-                ),
-                className="content-card mb-4",
-            ),
-            html.H3(f"Summary by {GROUP_LABELS[group_by].lower()}", className="h6"),
-            data_table("anthropic-summary-table", summary_rows, 12),
-            html.H3("Daily API-key detail", className="h6 mt-4"),
-            data_table("anthropic-daily-detail-table", detail_rows, 15),
-        ]
+    return (
+        _analysis_kpis(input_tokens, output_tokens, web_searches, allocated_cost, disclaimer),
+        _over_time_figure(filtered_rows, group_by, chart_metric),
+        html.Div(
+            [
+                html.H3(f"Summary by {GROUP_LABELS[group_by].lower()}", className="h6"),
+                data_table("anthropic-summary-table", summary_rows, 12),
+                html.H3("Daily API-key detail", className="h6 mt-4"),
+                data_table("anthropic-daily-detail-table", detail_rows, 15),
+            ]
+        ),
     )
+
+
+def _empty_over_time_figure() -> go.Figure:
+    figure = go.Figure()
+    figure.add_annotation(
+        text="No usage matches the selected filters.",
+        x=0.5,
+        y=0.5,
+        xref="paper",
+        yref="paper",
+        showarrow=False,
+    )
+    figure.update_layout(
+        title="Usage over time",
+        xaxis={"visible": False},
+        yaxis={"visible": False},
+    )
+    return apply_chart_theme(figure)
 
 
 def _analysis_kpis(
@@ -437,13 +480,23 @@ def _analysis_kpis(
     output_tokens: int,
     web_searches: int,
     allocated_cost: Decimal,
+    cost_disclaimer: str,
 ) -> dbc.Row:
     return dbc.Row(
         [
             dbc.Col(kpi_card("Total tokens in", f"{input_tokens:,}"), md=6, xl=3),
             dbc.Col(kpi_card("Total tokens out", f"{output_tokens:,}"), md=6, xl=3),
             dbc.Col(kpi_card("Total web searches", f"{web_searches:,}"), md=6, xl=3),
-            dbc.Col(kpi_card("Allocated billed cost", _format_usd(allocated_cost)), md=6, xl=3),
+            dbc.Col(
+                kpi_card(
+                    "Allocated billed cost",
+                    _format_usd(allocated_cost),
+                    tooltip=cost_disclaimer,
+                    card_id="anthropic-allocated-billed-cost",
+                ),
+                md=6,
+                xl=3,
+            ),
         ],
         className="g-3 mb-4",
     )
@@ -574,6 +627,39 @@ def _token_usage_figure(rows: list[dict[str, Any]], group_by: str):
     return apply_chart_theme(figure)
 
 
+def _cost_over_time_figure(rows: list[dict[str, Any]], group_by: str):
+    chart_rows = [
+        {
+            "date": row["date"],
+            "group": _group_label(row, group_by),
+            "cost_usd": float(_decimal(row["allocated_cost_usd"])),
+        }
+        for row in rows
+    ]
+    frame = pd.DataFrame(chart_rows).groupby(["date", "group"], as_index=False)["cost_usd"].sum()
+    figure = px.bar(
+        frame,
+        x="date",
+        y="cost_usd",
+        color="group",
+        barmode="stack",
+        title="Allocated cost over time",
+        labels={"date": "Date (UTC)", "cost_usd": "Cost (USD)", "group": GROUP_LABELS[group_by]},
+    )
+    figure.update_traces(hovertemplate="$%{y:,.4f} USD<extra>%{fullData.name}</extra>")
+    figure.update_layout(hovermode="x unified", legend_title_text=GROUP_LABELS[group_by])
+    figure.update_yaxes(tickprefix="$", tickformat=",.2f")
+    chronological_dates = sorted(frame["date"].unique())
+    figure.update_xaxes(type="category", categoryorder="array", categoryarray=chronological_dates)
+    return apply_chart_theme(figure)
+
+
+def _over_time_figure(rows: list[dict[str, Any]], group_by: str, chart_metric: str):
+    if chart_metric == "cost":
+        return _cost_over_time_figure(rows, group_by)
+    return _token_usage_figure(rows, group_by)
+
+
 def _group_label(row: dict[str, Any], group_by: str) -> str:
     if group_by == "api_key":
         return str(row["api_key_name"])
@@ -584,14 +670,13 @@ def _group_label(row: dict[str, Any], group_by: str) -> str:
     return str(row["model"])
 
 
-def _allocation_explanation(report_data: dict[str, Any]) -> str:
+def _allocation_disclaimer(report_data: dict[str, Any]) -> str:
     billed = _decimal(report_data.get("billed_cost_usd"))
     allocated = _decimal(report_data.get("allocated_cost_usd"))
     unallocated = _decimal(report_data.get("unallocated_cost_usd"))
     return (
-        "Anthropic does not return billed cost grouped by API key. This dashboard allocates each daily cost "
-        "line by workspace, model and token/tool type in proportion to measured usage. "
-        f"Organization billed: {_format_usd(billed)}; allocated to API keys: {_format_usd(allocated)}; "
+        "Anthropic does not report billed cost by API key. Costs are allocated proportionally by daily "
+        f"workspace, model and usage. Billed: {_format_usd(billed)}; allocated: {_format_usd(allocated)}; "
         f"unallocated: {_format_usd(unallocated)}."
     )
 
@@ -642,6 +727,30 @@ def _filter_control(
                 style={"minWidth": "190px"},
             ),
         ]
+    )
+
+
+def _chart_metric_control() -> html.Div:
+    return html.Div(
+        [
+            dbc.Label("View", html_for="anthropic-chart-metric", className="small mb-0"),
+            dbc.RadioItems(
+                id="anthropic-chart-metric",
+                options=[
+                    {"label": "Usage", "value": "usage"},
+                    {"label": "Cost", "value": "cost"},
+                ],
+                value="usage",
+                inline=True,
+                persistence=True,
+                persistence_type="session",
+                className="btn-group anthropic-chart-toggle",
+                input_class_name="btn-check",
+                label_class_name="btn btn-outline-primary",
+                label_checked_class_name="active",
+            ),
+        ],
+        className="anthropic-chart-toolbar",
     )
 
 

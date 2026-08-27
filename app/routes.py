@@ -1,4 +1,4 @@
-from dash import Input, Output
+from dash import Input, Output, State, ctx, no_update
 
 from app.pages import (
     client_detail,
@@ -25,9 +25,16 @@ def register_routes(app) -> None:
         Output("page-content", "children"),
         Input("url", "pathname"),
         Input("theme-store", "data"),
+        State("page-content", "children"),
     )
-    def render_page(pathname: str, _theme_state: dict | None):
+    def render_page(pathname: str, _theme_state: dict | None, current_page: object | None):
+        if _preserve_page_on_theme_change(pathname, ctx.triggered_id, current_page is not None):
+            return no_update
         return page_layout(pathname)
+
+
+def _preserve_page_on_theme_change(pathname: str, triggered_id: str | None, page_is_mounted: bool) -> bool:
+    return pathname == "/usage" and triggered_id == "theme-store" and page_is_mounted
 
 
 def page_layout(pathname: str):
