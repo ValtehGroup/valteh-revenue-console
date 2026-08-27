@@ -141,9 +141,11 @@ source status is successful, its type is supported, and its external client refe
 
 ## Scenarios
 
-Scenarios is a read-only six-month comparison of Base, Pessimistic, and Optimistic cases. The assumptions are displayed
-at the top of the page. Use the KPI cards, charts, and monthly table to compare revenue, costs, operating margin, and
-active clients.
+Scenarios is a six-month comparison of Base, Pessimistic, and Optimistic cases. Use the compact controls beside the
+forecast assumptions to set the baseline USD/MXN rate and the downside/upside percentage changes. They default to 18
+MXN per USD, +20% for Pessimistic, and -10% for Optimistic, and reset when the page is refreshed. Valid changes update
+the KPI cards, charts, and monthly table automatically. USD-entered fixed and variable costs are revalued from their
+original USD amounts, while costs entered in MXN are not affected by the exchange-rate assumption.
 
 Scenario results do not modify pricing plans, costs, clients, or forecasts stored elsewhere.
 

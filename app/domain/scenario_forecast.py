@@ -1,26 +1,49 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass, replace
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
 import pandas as pd
 
+from app.domain.cost_engine import calculate_fixed_costs, calculate_variable_cost
 from app.domain.unit_economics import calculate_operating_margin, money
 
 if TYPE_CHECKING:
     from app.data.repositories import SeedRepository
+    from app.domain.models import CostItem
+
+
+DEFAULT_REFERENCE_USD_MXN_RATE = Decimal("18")
+DEFAULT_DOWNSIDE_USD_MXN_CHANGE = Decimal("0.20")
+DEFAULT_UPSIDE_USD_MXN_CHANGE = Decimal("-0.10")
+USD_MXN_RATE_QUANTUM = Decimal("0.0001")
+
+
+def _validated_usd_mxn_rate(value: Decimal | float | int | str) -> Decimal:
+    rate = money(value)
+    if not rate.is_finite() or rate <= 0:
+        raise ValueError("usd_mxn_rate must be greater than zero")
+    return rate
 
 
 @dataclass(frozen=True)
 class ScenarioConfig:
     name: str
+    usd_mxn_change: Decimal = Decimal("0")
     fixed_cost_multiplier: Decimal = Decimal("1")
     variable_cost_multiplier: Decimal = Decimal("1")
     drop_largest_client: bool = False
     largest_client_drop_month: int = 2
     add_new_client: bool = False
     new_client_join_month: int = 4
+
+    def __post_init__(self) -> None:
+        change = money(self.usd_mxn_change)
+        if not change.is_finite() or change <= Decimal("-1"):
+            raise ValueError("usd_mxn_change must be greater than -100%")
+        object.__setattr__(self, "usd_mxn_change", change)
 
 
 @dataclass(frozen=True)
@@ -34,6 +57,7 @@ class ClientEconomicsProfile:
 class ScenarioMonth:
     scenario: str
     month: str
+    usd_mxn_rate: Decimal
     clients: int
     revenue: Decimal
     fixed_cost: Decimal
@@ -42,15 +66,17 @@ class ScenarioMonth:
 
 
 SCENARIO_CONFIGS = [
-    ScenarioConfig(name="Base"),
+    ScenarioConfig(name="Base", usd_mxn_change=Decimal("0")),
     ScenarioConfig(
         name="Pessimistic",
+        usd_mxn_change=DEFAULT_DOWNSIDE_USD_MXN_CHANGE,
         fixed_cost_multiplier=Decimal("1.10"),
         variable_cost_multiplier=Decimal("1.20"),
         drop_largest_client=True,
     ),
     ScenarioConfig(
         name="Optimistic",
+        usd_mxn_change=DEFAULT_UPSIDE_USD_MXN_CHANGE,
         variable_cost_multiplier=Decimal("0.90"),
         add_new_client=True,
         new_client_join_month=4,
@@ -63,19 +89,43 @@ def forecast_scenarios(
     horizon_months: int = 6,
     start_month: str | None = None,
     configs: list[ScenarioConfig] | None = None,
+    reference_usd_mxn_rate: Decimal = DEFAULT_REFERENCE_USD_MXN_RATE,
+    scenario_usd_mxn_changes: Mapping[str, Decimal] | None = None,
 ) -> list[ScenarioMonth]:
     """Build month-by-month scenario forecasts from the latest available actual month."""
 
     base_month = start_month or repo.available_months()[-1]
     months = forecast_months(base_month, horizon_months)
-    profiles = current_client_profiles(repo, base_month)
-    fixed_cost = repo.monthly_summary(base_month)["fixed_cost"]
     scenario_configs = configs or SCENARIO_CONFIGS
-    return [
-        month_forecast(config, month, month_index, profiles, fixed_cost)
-        for config in scenario_configs
-        for month_index, month in enumerate(months, start=1)
-    ]
+    if scenario_usd_mxn_changes is not None:
+        scenario_configs = [
+            replace(
+                config,
+                usd_mxn_change=scenario_usd_mxn_changes.get(config.name, config.usd_mxn_change),
+            )
+            for config in scenario_configs
+        ]
+    reference_rate = _validated_usd_mxn_rate(reference_usd_mxn_rate)
+    base_cost_items = repo.cost_items()
+    base_month_date = pd.Timestamp(f"{base_month}-01").date()
+    forecasts: list[ScenarioMonth] = []
+    for config in scenario_configs:
+        usd_mxn_rate = scenario_usd_mxn_rate(config, reference_rate)
+        scenario_cost_items = cost_items_at_usd_mxn_rate(base_cost_items, usd_mxn_rate)
+        profiles = current_client_profiles(repo, base_month, scenario_cost_items)
+        fixed_cost = calculate_fixed_costs(scenario_cost_items, base_month_date)
+        forecasts.extend(
+            month_forecast(config, month, month_index, profiles, fixed_cost, usd_mxn_rate)
+            for month_index, month in enumerate(months, start=1)
+        )
+    return forecasts
+
+
+def scenario_usd_mxn_rate(config: ScenarioConfig, reference_usd_mxn_rate: Decimal) -> Decimal:
+    """Apply a scenario's percentage change to the user-selected reference rate."""
+
+    reference_rate = _validated_usd_mxn_rate(reference_usd_mxn_rate)
+    return (reference_rate * (Decimal("1") + config.usd_mxn_change)).quantize(USD_MXN_RATE_QUANTUM)
 
 
 def forecast_months(start_month: str, horizon_months: int) -> list[str]:
@@ -85,17 +135,49 @@ def forecast_months(start_month: str, horizon_months: int) -> list[str]:
     return [str(period + offset) for offset in range(horizon_months)]
 
 
-def current_client_profiles(repo: SeedRepository, month: str) -> list[ClientEconomicsProfile]:
+def current_client_profiles(
+    repo: SeedRepository,
+    month: str,
+    cost_items: Iterable[CostItem] | None = None,
+) -> list[ClientEconomicsProfile]:
     """Capture actual current-month client revenue and variable cost as reusable profiles."""
 
-    return [
-        ClientEconomicsProfile(
-            client_id=client.id,
-            revenue=repo.client_profitability(client.id, month).revenue,
-            variable_cost=repo.client_profitability(client.id, month).variable_cost,
+    scenario_cost_items = list(cost_items) if cost_items is not None else None
+    profiles = []
+    for client in repo.active_clients(month):
+        profitability = repo.client_profitability(client.id, month)
+        variable_cost = profitability.variable_cost
+        if scenario_cost_items is not None:
+            variable_cost = calculate_variable_cost(
+                repo.usage_for_client_month(client.id, month),
+                scenario_cost_items,
+            )
+        profiles.append(
+            ClientEconomicsProfile(
+                client_id=client.id,
+                revenue=profitability.revenue,
+                variable_cost=variable_cost,
+            )
         )
-        for client in repo.active_clients(month)
-    ]
+    return profiles
+
+
+def cost_items_at_usd_mxn_rate(
+    cost_items: Iterable[CostItem],
+    usd_mxn_rate: Decimal,
+) -> list[CostItem]:
+    """Return detached cost copies with USD source amounts converted at a scenario rate."""
+
+    rate = _validated_usd_mxn_rate(usd_mxn_rate)
+    revalued_items = []
+    for item in cost_items:
+        updates = {}
+        if (item.entered_currency or "").strip().upper() == "USD":
+            if item.entered_unit_cost is None:
+                raise ValueError(f"USD cost item '{item.cost_key}' is missing its entered_unit_cost source amount")
+            updates["unit_cost"] = money(item.entered_unit_cost) * rate
+        revalued_items.append(item.model_copy(update=updates))
+    return revalued_items
 
 
 def month_forecast(
@@ -104,9 +186,15 @@ def month_forecast(
     month_index: int,
     base_profiles: list[ClientEconomicsProfile],
     base_fixed_cost: Decimal,
+    usd_mxn_rate: Decimal | None = None,
 ) -> ScenarioMonth:
     """Apply one scenario configuration to one forecast month."""
 
+    applied_usd_mxn_rate = (
+        scenario_usd_mxn_rate(config, DEFAULT_REFERENCE_USD_MXN_RATE)
+        if usd_mxn_rate is None
+        else _validated_usd_mxn_rate(usd_mxn_rate)
+    )
     profiles = scenario_client_profiles(config, month_index, base_profiles)
     revenue = sum((profile.revenue for profile in profiles), Decimal("0"))
     variable_cost = sum((profile.variable_cost for profile in profiles), Decimal("0")) * money(
@@ -117,6 +205,7 @@ def month_forecast(
     return ScenarioMonth(
         scenario=config.name,
         month=month,
+        usd_mxn_rate=applied_usd_mxn_rate,
         clients=len(profiles),
         revenue=revenue,
         fixed_cost=fixed_cost,

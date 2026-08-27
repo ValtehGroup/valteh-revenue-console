@@ -1,21 +1,31 @@
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation
+
 import dash_bootstrap_components as dbc
 import pandas as pd
 import plotly.express as px
-from dash import dcc, html
+from dash import Input, Output, dcc, html, no_update
 
 from app.components.chart_theme import apply_chart_theme
 from app.components.tables import data_table
 from app.data.repositories import SeedRepository
-from app.domain.scenario_forecast import ScenarioMonth, forecast_scenarios
+from app.domain.scenario_forecast import (
+    DEFAULT_DOWNSIDE_USD_MXN_CHANGE,
+    DEFAULT_REFERENCE_USD_MXN_RATE,
+    DEFAULT_UPSIDE_USD_MXN_CHANGE,
+    ScenarioMonth,
+    forecast_scenarios,
+)
 from app.utils.currency import format_mxn, format_percent
 
 
 def layout():
-    repo = SeedRepository()
-    forecast = forecast_scenarios(repo, horizon_months=6)
-    latest_month = repo.available_months()[-1]
+    assumption_summary, scenario_results = _scenario_outputs(
+        DEFAULT_REFERENCE_USD_MXN_RATE,
+        DEFAULT_DOWNSIDE_USD_MXN_CHANGE * Decimal("100"),
+        DEFAULT_UPSIDE_USD_MXN_CHANGE * Decimal("100"),
+    )
     return html.Div(
         [
             html.H1("Scenarios", className="h3"),
@@ -23,7 +33,157 @@ def layout():
                 "Six-month forecast comparing Base, Pessimistic, and Optimistic cases.",
                 className="text-muted",
             ),
-            _assumption_summary(latest_month),
+            dbc.Row(
+                [
+                    dbc.Col(
+                        html.Div(id="scenario-assumption-summary", children=assumption_summary, className="h-100"),
+                        lg=7,
+                    ),
+                    dbc.Col(_exchange_rate_controls(), lg=5),
+                ],
+                className="g-3 mb-4 align-items-stretch",
+            ),
+            html.Div(id="scenario-results", children=scenario_results),
+        ]
+    )
+
+
+def register_callbacks(app) -> None:
+    @app.callback(
+        Output("scenario-assumption-summary", "children"),
+        Output("scenario-results", "children"),
+        Input("scenario-reference-usd-mxn-rate", "value"),
+        Input("scenario-downside-usd-mxn-change", "value"),
+        Input("scenario-upside-usd-mxn-change", "value"),
+    )
+    def update_scenarios(
+        reference_usd_mxn_rate: float | str | None,
+        downside_usd_mxn_change: float | str | None,
+        upside_usd_mxn_change: float | str | None,
+    ):
+        if None in (reference_usd_mxn_rate, downside_usd_mxn_change, upside_usd_mxn_change):
+            return no_update, no_update
+        try:
+            return _scenario_outputs(
+                reference_usd_mxn_rate,
+                downside_usd_mxn_change,
+                upside_usd_mxn_change,
+            )
+        except ValueError as exc:
+            return dbc.Alert(str(exc), color="danger", className="h-100 mb-0"), no_update
+
+
+def _exchange_rate_controls() -> dbc.Card:
+    return dbc.Card(
+        dbc.CardBody(
+            dbc.Row(
+                [
+                    _scenario_input(
+                        "Baseline USD:MXN",
+                        "scenario-reference-usd-mxn-rate",
+                        float(DEFAULT_REFERENCE_USD_MXN_RATE),
+                        min_value=0.01,
+                        step=0.01,
+                    ),
+                    _scenario_input(
+                        "Downside %",
+                        "scenario-downside-usd-mxn-change",
+                        float(DEFAULT_DOWNSIDE_USD_MXN_CHANGE * Decimal("100")),
+                        min_value=-99.99,
+                        step=0.1,
+                    ),
+                    _scenario_input(
+                        "Upside %",
+                        "scenario-upside-usd-mxn-change",
+                        float(DEFAULT_UPSIDE_USD_MXN_CHANGE * Decimal("100")),
+                        min_value=-99.99,
+                        step=0.1,
+                    ),
+                ],
+                className="g-2",
+            )
+        ),
+        className="content-card h-100",
+    )
+
+
+def _scenario_input(
+    label: str,
+    component_id: str,
+    value: float,
+    *,
+    min_value: float,
+    step: float,
+) -> dbc.Col:
+    input_component = dcc.Input(
+        id=component_id,
+        type="text",
+        inputMode="decimal",
+        value=value,
+        min=min_value,
+        step=step,
+        debounce=False,
+        className="form-control",
+    )
+    return dbc.Col(
+        [
+            dbc.Label(label, html_for=component_id, className="small mb-1"),
+            input_component,
+        ],
+        md=4,
+    )
+
+
+def _scenario_outputs(
+    reference_usd_mxn_rate: Decimal | float | int | str | None,
+    downside_usd_mxn_change: Decimal | float | int | str | None,
+    upside_usd_mxn_change: Decimal | float | int | str | None,
+):
+    reference_rate = _positive_decimal(reference_usd_mxn_rate, "Baseline USD:MXN")
+    downside_change = _percentage_change(downside_usd_mxn_change, "Downside change")
+    upside_change = _percentage_change(upside_usd_mxn_change, "Upside change")
+
+    repo = SeedRepository()
+    latest_month = repo.available_months()[-1]
+    forecast = forecast_scenarios(
+        repo,
+        horizon_months=6,
+        reference_usd_mxn_rate=reference_rate,
+        scenario_usd_mxn_changes={
+            "Pessimistic": downside_change,
+            "Optimistic": upside_change,
+        },
+    )
+    return _assumption_summary(latest_month, forecast), _scenario_results(forecast)
+
+
+def _positive_decimal(value: Decimal | float | int | str | None, label: str) -> Decimal:
+    number = _decimal(value, label)
+    if number <= 0:
+        raise ValueError(f"{label} must be greater than zero.")
+    return number
+
+
+def _percentage_change(value: Decimal | float | int | str | None, label: str) -> Decimal:
+    percentage = _decimal(value, label)
+    if percentage <= Decimal("-100"):
+        raise ValueError(f"{label} must be greater than -100%.")
+    return percentage / Decimal("100")
+
+
+def _decimal(value: Decimal | float | int | str | None, label: str) -> Decimal:
+    try:
+        number = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise ValueError(f"Enter a valid value for {label}.") from exc
+    if not number.is_finite():
+        raise ValueError(f"Enter a valid value for {label}.")
+    return number
+
+
+def _scenario_results(forecast: list[ScenarioMonth]) -> html.Div:
+    return html.Div(
+        [
             _scenario_kpis(forecast),
             dbc.Row(
                 [
@@ -40,27 +200,33 @@ def layout():
                 className="mb-4",
             ),
             html.H2("Month-by-month Forecast", className="h5"),
-            data_table("scenario-forecast-table", _table_rows(forecast), 18),
+            data_table(
+                "scenario-forecast-table",
+                _table_rows(forecast),
+                18,
+                column_options={"usd_mxn_rate": {"name": "USD/MXN"}},
+            ),
         ]
     )
 
 
-def register_callbacks(app) -> None:
-    return None
-
-
-def _assumption_summary(latest_month: str) -> dbc.Alert:
+def _assumption_summary(latest_month: str, forecast: list[ScenarioMonth]) -> dbc.Alert:
+    scenario_rates = {}
+    for month in forecast:
+        scenario_rates.setdefault(month.scenario, month.usd_mxn_rate)
+    rate_summary = ", ".join(f"{name} {rate:.2f}" for name, rate in scenario_rates.items())
     return dbc.Alert(
         [
             html.Strong(f"Forecast starts from {latest_month}. "),
             html.Span(
                 "Base keeps current clients, revenue, and costs. Pessimistic increases fixed costs by 10%, "
                 "variable costs by 20%, removes the largest client from month 2, and adds no clients. "
-                "Optimistic reduces variable costs by 10% and adds one average new client from month 4."
+                "Optimistic reduces variable costs by 10% and adds one average new client from month 4. "
+                f"USD/MXN assumptions (MXN per USD): {rate_summary}."
             ),
         ],
         color="light",
-        className="mb-4",
+        className="h-100 mb-0",
     )
 
 
@@ -139,6 +305,7 @@ def _table_rows(forecast: list[ScenarioMonth]) -> list[dict]:
             {
                 "scenario": month.scenario,
                 "month": month.month,
+                "usd_mxn_rate": f"{month.usd_mxn_rate:.2f}",
                 "clients": month.clients,
                 "revenue": format_mxn(month.revenue),
                 "fixed_cost": format_mxn(month.fixed_cost),

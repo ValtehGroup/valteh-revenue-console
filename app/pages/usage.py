@@ -77,11 +77,6 @@ def layout():
                 dbc.CardBody(
                     [
                         html.H2("Anthropic usage and cost allocation", className="h5"),
-                        html.P(
-                            "Choose persisted history for long-term reporting or the live Admin API for a "
-                            "temporary current view. The Admin API key is never sent to the browser.",
-                            className="text-muted",
-                        ),
                         dbc.Tabs(
                             [
                                 dbc.Tab(label="Historical", tab_id="historical"),
@@ -99,7 +94,7 @@ def layout():
                                     _history_status_message(history_status),
                                     id="anthropic-history-status",
                                     color="secondary",
-                                    className="mb-3",
+                                    className="d-none",
                                 ),
                                 dbc.Button(
                                     "Update history",
@@ -107,27 +102,23 @@ def layout():
                                     color="primary",
                                     disabled=not anthropic_is_configured,
                                 ),
-                                html.P(
-                                    "The report below always includes all persisted history. Update imports only "
-                                    "complete UTC days since the latest successful sync and safely refreshes the "
-                                    "recent overlap.",
-                                    className="small text-muted mt-2 mb-0",
-                                ),
                             ],
                             id="anthropic-historical-controls",
                             className="mb-3",
                         ),
                         html.Div(
                             [
-                                dbc.Alert(
-                                    (
-                                        "Admin API key configured. Choose a range and load a temporary report."
-                                        if anthropic_is_configured
-                                        else "Admin API key not configured. Paste it into ANTHROPIC_ADMIN_KEY in "
-                                        ".env and restart the server."
-                                    ),
-                                    color="success" if anthropic_is_configured else "warning",
-                                    className="mb-3",
+                                *(
+                                    []
+                                    if anthropic_is_configured
+                                    else [
+                                        dbc.Alert(
+                                            "Admin API key not configured. Paste it into ANTHROPIC_ADMIN_KEY in "
+                                            ".env and restart the server.",
+                                            color="warning",
+                                            className="mb-3",
+                                        )
+                                    ]
                                 ),
                                 html.Div(
                                     [
@@ -219,7 +210,7 @@ def register_callbacks(app) -> None:
             if _is_cached_live_report(cached_live_report):
                 return _render_serialized_report(cached_live_report), no_update, no_update, no_update
             return (
-                dbc.Alert("Choose a range and load a temporary Live API report.", color="secondary"),
+                html.Div(),
                 no_update,
                 no_update,
                 no_update,
