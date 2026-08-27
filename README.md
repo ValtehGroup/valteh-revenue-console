@@ -16,7 +16,7 @@ subscriptions and billable usage; they are not proof that an invoice was issued 
 - **Pricing:** pricing-plan comparison followed by a one-client simulator, revenue/cost split, and sensitivity analysis.
 - **Usage:** operational usage plus Anthropic Admin API usage and allocated costs, with persistent history and temporary
   live reports.
-- **Scenarios:** read-only six-month Base, Pessimistic, and Optimistic forecasts.
+- **Scenarios:** interactive six-month Base, Pessimistic, and Optimistic forecasts with adjustable USD/MXN sensitivity.
 
 ## Technology
 
