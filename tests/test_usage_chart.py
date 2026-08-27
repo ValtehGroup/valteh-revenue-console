@@ -68,6 +68,38 @@ def test_cost_chart_uses_the_same_grouping_and_chronological_order() -> None:
     )
 
 
+def test_monthly_usage_groups_dates_and_api_key_series() -> None:
+    rows = [
+        {"date": "2026-07-31", "api_key_name": "production-api-key", "total_tokens": 100_000},
+        {"date": "2026-08-03", "api_key_name": "production-api-key", "total_tokens": 125_000},
+        {"date": "2026-08-20", "api_key_name": "production-api-key", "total_tokens": 75_000},
+        {"date": "2026-08-20", "api_key_name": "dev-api-key", "total_tokens": 50_000},
+    ]
+
+    figure = _token_usage_figure(rows, "api_key", "monthly")
+
+    assert list(figure.layout.xaxis.categoryarray) == ["2026-07", "2026-08"]
+    assert figure.layout.xaxis.title.text == "Month (UTC)"
+    production_trace = next(trace for trace in figure.data if trace.name == "production-api-key")
+    assert list(production_trace.x) == ["2026-07", "2026-08"]
+    assert list(production_trace.y) == [100_000, 200_000]
+
+
+def test_yearly_cost_groups_dates_and_preserves_total() -> None:
+    rows = [
+        {"date": "2026-07-31", "api_key_name": "production-api-key", "allocated_cost_usd": "1.25"},
+        {"date": "2026-08-03", "api_key_name": "production-api-key", "allocated_cost_usd": "2.75"},
+        {"date": "2027-01-10", "api_key_name": "production-api-key", "allocated_cost_usd": "3.00"},
+    ]
+
+    figure = _cost_over_time_figure(rows, "api_key", "yearly")
+
+    assert list(figure.layout.xaxis.categoryarray) == ["2026", "2027"]
+    assert figure.layout.xaxis.title.text == "Year (UTC)"
+    assert list(figure.data[0].y) == [4.0, 3.0]
+    assert sum(sum(trace.y) for trace in figure.data) == 7.0
+
+
 def test_summary_table_formats_token_columns_in_thousands() -> None:
     rows = [
         {
@@ -124,3 +156,10 @@ def test_cost_disclaimer_is_attached_to_kpi_and_chart_toggle_is_compact() -> Non
 
     assert tooltip.children == disclaimer
     assert "anthropic-chart-toolbar" in _chart_metric_control().className
+    granularity = next(
+        component
+        for component in _walk(_chart_metric_control())
+        if getattr(component, "id", "") == "anthropic-chart-granularity"
+    )
+    assert granularity.value == "daily"
+    assert granularity.persistence_type == "session"

@@ -24,13 +24,33 @@ def layout():
         [
             html.H1("Pricing", className="h3"),
             html.P(
-                "Simulate one potential client's pricing, usage intensity, and operating margin sensitivity.",
+                "Review Valteh's pricing plans, then model revenue, costs, and margin sensitivity.",
                 className="text-muted",
             ),
-            _simulator_controls(repo, defaults),
-            html.Div(id="pricing-simulation-results", children=_simulation_content(defaults)),
-            html.H2("Pricing Plans", className="h5 mt-4"),
-            data_table("pricing-table", _plan_rows(repo), 10),
+            html.Section(
+                [
+                    html.H2("Pricing Plans", className="h5"),
+                    html.P(
+                        "Compare the fixed fees, included usage, and unit pricing of each available plan.",
+                        className="text-muted",
+                    ),
+                    data_table("pricing-table", _plan_rows(repo), 10),
+                ],
+                id="pricing-plans-section",
+                className="mb-5",
+            ),
+            html.Section(
+                [
+                    html.H2("Pricing Simulator and Sensitivity", className="h5"),
+                    html.P(
+                        "Model one potential client's usage, revenue, costs, and operating margin.",
+                        className="text-muted",
+                    ),
+                    _simulator_controls(repo, defaults),
+                    html.Div(id="pricing-simulation-results", children=_simulation_content(defaults)),
+                ],
+                id="pricing-simulator-section",
+            ),
         ]
     )
 
@@ -83,7 +103,7 @@ def _simulator_controls(repo: SeedRepository, defaults: dict):
     return dbc.Card(
         dbc.CardBody(
             [
-                html.H2("One-client Pricing Simulator", className="h5"),
+                html.H3("Simulation Inputs", className="h6"),
                 dbc.Row(
                     [
                         dbc.Col(

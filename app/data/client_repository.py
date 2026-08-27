@@ -121,6 +121,10 @@ class ClientRepository:
                         pricing_plan = session.get(PricingPlanORM, values["pricing_plan_id"])
                         if pricing_plan is None:
                             raise ClientValidationError("The selected pricing plan is no longer available.")
+                        if pricing_plan.dedicated_client_id is not None:
+                            raise ClientValidationError(
+                                "Client-specific pricing plans cannot be assigned during client creation."
+                            )
                         session.add(
                             ClientSubscriptionORM(
                                 client_id=row.id,
@@ -203,6 +207,8 @@ class ClientRepository:
                     plan = session.get(PricingPlanORM, plan_id)
                     if plan is None:
                         raise ClientValidationError("The selected pricing plan is no longer available.")
+                    if plan.dedicated_client_id is not None and plan.dedicated_client_id != client_id:
+                        raise ClientValidationError("The selected pricing plan is dedicated to another client.")
 
                     subscriptions = session.scalars(
                         select(ClientSubscriptionORM)

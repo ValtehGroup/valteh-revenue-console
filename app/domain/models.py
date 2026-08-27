@@ -45,6 +45,7 @@ class Service(BaseModel):
 class PricingPlan(BaseModel):
     id: int
     name: str
+    dedicated_client_id: int | None = None
     setup_fee: Decimal = Decimal("0")
     annual_fee: Decimal = Decimal("0")
     monthly_fixed_fee: Decimal = Decimal("0")

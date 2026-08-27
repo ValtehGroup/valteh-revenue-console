@@ -518,10 +518,17 @@ label {
 .anthropic-chart-toolbar {
   align-items: center;
   display: flex;
-  gap: var(--space-3);
+  flex-wrap: wrap;
+  gap: var(--space-3) var(--space-5);
   margin-bottom: calc(var(--space-3) * -1);
   position: relative;
   z-index: 2;
+}
+
+.anthropic-chart-control {
+  align-items: center;
+  display: flex;
+  gap: var(--space-3);
 }
 
 /* Dash 4 dropdowns use their own component variables rather than legacy Select classes. */

@@ -78,6 +78,7 @@ class PricingPlanORM(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
+    dedicated_client_id: Mapped[int | None] = mapped_column(ForeignKey("clients.id"))
     setup_fee: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
     annual_fee: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
     monthly_fixed_fee: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)

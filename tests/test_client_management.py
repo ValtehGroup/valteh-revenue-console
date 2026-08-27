@@ -74,6 +74,16 @@ def test_client_seed_is_idempotent(tmp_path: Path) -> None:
         "client_0001",
     ]
     assert ClientRepository(factory).get_client_by_code("test_0002").id == 2
+    with factory() as session:
+        ad_hoc_plan = session.get(PricingPlanORM, 5)
+    assert ad_hoc_plan.name == "Notaría 38 Pilot (Ad hoc)"
+    assert ad_hoc_plan.dedicated_client_id == 1
+    assert ad_hoc_plan.setup_fee == 5000
+    assert ad_hoc_plan.included_documents == 500
+    with factory() as session:
+        notaria_subscription = session.scalar(select(ClientSubscriptionORM).where(ClientSubscriptionORM.client_id == 1))
+    assert notaria_subscription.pricing_plan_id == 5
+    assert notaria_subscription.start_date == date(2026, 8, 1)
 
 
 def test_create_generates_public_code_and_timestamps(repository) -> None:
@@ -118,6 +128,18 @@ def test_missing_pricing_plan_rolls_back_client_creation(repository) -> None:
         assert session.scalar(select(func.count()).select_from(ClientORM)) == 0
 
 
+def test_dedicated_pricing_plan_cannot_be_reused_for_a_new_client(repository) -> None:
+    client_repository, factory = repository
+    with factory.begin() as session:
+        session.add(PricingPlanORM(id=5, name="Notaría 38 Pilot (Ad hoc)", dedicated_client_id=1))
+
+    with pytest.raises(ClientValidationError, match="Client-specific"):
+        client_repository.create_client(client_command(pricing_plan_id=5))
+
+    with factory() as session:
+        assert session.scalar(select(func.count()).select_from(ClientORM)) == 0
+
+
 def test_change_pricing_plan_preserves_prior_subscription_history(repository) -> None:
     client_repository, factory = repository
     with factory.begin() as session:
@@ -127,9 +149,7 @@ def test_change_pricing_plan_preserves_prior_subscription_history(repository) ->
                 PricingPlanORM(id=2, name="SIGEN Go"),
             ]
         )
-    created = client_repository.create_client(
-        client_command(start_date="2026-07-01", pricing_plan_id=1)
-    )
+    created = client_repository.create_client(client_command(start_date="2026-07-01", pricing_plan_id=1))
 
     replacement = client_repository.change_pricing_plan(
         created.id,
@@ -153,6 +173,39 @@ def test_change_pricing_plan_preserves_prior_subscription_history(repository) ->
     assert client_repository.get_client(created.id).client_code == created.client_code
 
 
+def test_dedicated_pricing_plan_can_only_be_assigned_to_its_client(repository) -> None:
+    client_repository, factory = repository
+    with factory.begin() as session:
+        session.add_all(
+            [
+                PricingPlanORM(id=1, name="Pilot"),
+                PricingPlanORM(id=5, name="Notaría 38 Pilot (Ad hoc)", dedicated_client_id=1),
+            ]
+        )
+    notaria_38 = client_repository.create_client(
+        client_command(name="Notaría 38", start_date="2026-07-01", pricing_plan_id=1)
+    )
+    other_client = client_repository.create_client(
+        client_command(name="Other client", start_date="2026-07-01", pricing_plan_id=1)
+    )
+
+    replacement = client_repository.change_pricing_plan(
+        notaria_38.id,
+        5,
+        "2026-09-01",
+        notaria_38.updated_at,
+    )
+    assert replacement.pricing_plan_id == 5
+
+    with pytest.raises(ClientValidationError, match="dedicated to another client"):
+        client_repository.change_pricing_plan(
+            other_client.id,
+            5,
+            "2026-09-01",
+            other_client.updated_at,
+        )
+
+
 def test_change_pricing_plan_rejects_overlap_without_altering_history(repository) -> None:
     client_repository, factory = repository
     with factory.begin() as session:
@@ -162,9 +215,7 @@ def test_change_pricing_plan_rejects_overlap_without_altering_history(repository
                 PricingPlanORM(id=2, name="SIGEN Go"),
             ]
         )
-    created = client_repository.create_client(
-        client_command(start_date="2026-07-01", pricing_plan_id=1)
-    )
+    created = client_repository.create_client(client_command(start_date="2026-07-01", pricing_plan_id=1))
 
     with pytest.raises(ClientValidationError, match="start dates"):
         client_repository.change_pricing_plan(created.id, 2, "2026-07-01", created.updated_at)

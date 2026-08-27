@@ -8,7 +8,7 @@ from datetime import date
 from decimal import Decimal
 
 import pandas as pd
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from app.config import BASE_DIR, get_settings
 from app.domain.cost_engine import calculate_variable_cost, is_cost_effective, monthly_cost_amounts
@@ -105,12 +105,27 @@ class SeedRepository:
             ),
         ]
 
-    def pricing_plans(self) -> list[PricingPlan]:
+    def pricing_plans(
+        self,
+        *,
+        client_id: int | None = None,
+        reusable_only: bool = False,
+    ) -> list[PricingPlan]:
         from app.data.database import SessionLocal
         from app.data.schemas import PricingPlanORM
 
         with SessionLocal() as session:
-            rows = session.scalars(select(PricingPlanORM).order_by(PricingPlanORM.id)).all()
+            statement = select(PricingPlanORM).order_by(PricingPlanORM.id)
+            if reusable_only:
+                statement = statement.where(PricingPlanORM.dedicated_client_id.is_(None))
+            elif client_id is not None:
+                statement = statement.where(
+                    or_(
+                        PricingPlanORM.dedicated_client_id.is_(None),
+                        PricingPlanORM.dedicated_client_id == client_id,
+                    )
+                )
+            rows = session.scalars(statement).all()
             return [
                 PricingPlan.model_validate(
                     {column.name: getattr(row, column.name) for column in PricingPlanORM.__table__.columns}
