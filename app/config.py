@@ -24,6 +24,7 @@ class Settings(BaseSettings):
         default=None,
         description="Server-only Admin API key used to read Anthropic usage and cost reports.",
     )
+    anthropic_history_overlap_days: int = Field(default=7, ge=0, le=31)
 
     model_config = SettingsConfigDict(env_file=BASE_DIR / ".env", env_file_encoding="utf-8")
 

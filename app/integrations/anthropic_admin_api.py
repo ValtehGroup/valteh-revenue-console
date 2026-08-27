@@ -153,6 +153,19 @@ class AnthropicAdminClient:
             usage_rows.extend(_parse_usage_rows(records))
             report_date += timedelta(days=1)
 
+        historical = self.fetch_historical_report(starting_at, ending_at)
+        return AnthropicAdminReport(
+            usage_rows=tuple(usage_rows),
+            messages_usage_rows=historical.messages_usage_rows,
+            cost_rows=historical.cost_rows,
+            api_keys=historical.api_keys,
+            workspaces=historical.workspaces,
+        )
+
+    def fetch_historical_report(self, starting_at: date, ending_at: date) -> AnthropicAdminReport:
+        """Return the provider facts required by the durable history sync."""
+
+        _validate_date_range(starting_at, ending_at)
         messages_usage_records = self._get_all_pages(
             "/v1/organizations/usage_report/messages",
             [
@@ -183,7 +196,7 @@ class AnthropicAdminClient:
             [("limit", "1000"), ("include_archived", "false")],
         )
         return AnthropicAdminReport(
-            usage_rows=tuple(usage_rows),
+            usage_rows=(),
             messages_usage_rows=tuple(_parse_messages_usage_rows(messages_usage_records)),
             cost_rows=tuple(_parse_cost_rows(cost_records)),
             api_keys=tuple(_parse_api_keys(api_key_records)),

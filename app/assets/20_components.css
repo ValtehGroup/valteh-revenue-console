@@ -463,6 +463,28 @@ label {
   fill: var(--color-text-muted) !important;
 }
 
+#anthropic-report-tabs {
+  border-bottom-color: var(--color-border);
+}
+
+#anthropic-report-tabs .nav-link {
+  background: transparent;
+  border-color: transparent;
+  color: var(--color-text-muted);
+}
+
+#anthropic-report-tabs .nav-link:hover,
+#anthropic-report-tabs .nav-link:focus-visible {
+  border-color: var(--color-border);
+  color: var(--color-text);
+}
+
+#anthropic-report-tabs .nav-link.active {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-primary-contrast);
+}
+
 .dash-datepicker,
 .dash-datepicker-input-wrapper,
 .dash-datepicker-input {
