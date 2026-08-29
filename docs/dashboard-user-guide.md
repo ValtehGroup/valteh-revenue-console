@@ -7,7 +7,7 @@ or that a customer deposited funds.
 ## In this guide
 
 - [General interaction](#general-interaction)
-- [Executive Dashboard](#executive-dashboard)
+- [Executive Summary](#executive-summary)
 - [Clients](#clients)
 - [Costs](#costs)
 - [Pricing](#pricing)
@@ -24,7 +24,7 @@ or that a customer deposited funds.
 - If a save says another user changed the record, refresh and review the latest values before retrying.
 - Preserve history with effective dates. Use deletion only for a specifically verified accidental record.
 
-## Executive Dashboard
+## Executive Summary
 
 Select a month to review revenue, fixed and variable costs, operating margin, burn rate, break-even usage, active
 clients, and service-line performance.
@@ -153,7 +153,7 @@ Scenario results do not modify pricing plans, costs, clients, or forecasts store
 
 | Situation | Action |
 | --- | --- |
-| Review current economics | Executive Dashboard → select month |
+| Review current economics | Executive Summary → select month |
 | Correct a cost description | Costs → Edit metadata |
 | Change a cost amount or billing rule | Costs → Change cost |
 | End a normal cost contract | Costs → End cost |

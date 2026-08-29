@@ -4,7 +4,7 @@ from dash import dcc, html
 from app.theme import theme_store, theme_toggle
 
 NAV_ITEMS = [
-    ("Executive Dashboard", "/"),
+    ("Executive Summary", "/"),
     ("Clients", "/clients"),
     ("Costs", "/costs"),
     ("Pricing", "/pricing"),
