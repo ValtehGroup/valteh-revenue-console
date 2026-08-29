@@ -14,6 +14,7 @@ from app.data.repositories import (
 )
 from app.data.seed_data import seed_database
 from app.domain.cost_engine import calculate_fixed_costs
+from app.domain.fx_rates import USD_MXN_FIX_SERIES_ID, DatedFxRateBook, FxRateObservation
 
 
 def _seed_record(**overrides) -> pd.Series:
@@ -136,14 +137,21 @@ def test_blank_cost_key_is_derived_from_stable_record_fields() -> None:
     assert record["cost_key"] == "software.microsoft.microsoft.365.team.subscription"
 
 
-def test_microsoft_seed_history_uses_may_june_and_july_versions() -> None:
+def test_microsoft_seed_history_uses_dated_month_end_fx_rates() -> None:
     microsoft_versions = [
         item for item in SeedRepository().seed_cost_items() if item.cost_key == "software.microsoft365.team"
     ]
+    rates = DatedFxRateBook(
+        [
+            FxRateObservation(USD_MXN_FIX_SERIES_ID, date(2026, 5, 29), Decimal("18")),
+            FxRateObservation(USD_MXN_FIX_SERIES_ID, date(2026, 6, 30), Decimal("19")),
+            FxRateObservation(USD_MXN_FIX_SERIES_ID, date(2026, 7, 31), Decimal("20")),
+        ]
+    )
 
-    assert calculate_fixed_costs(microsoft_versions, date(2026, 5, 1)) == Decimal("432")
-    assert calculate_fixed_costs(microsoft_versions, date(2026, 6, 1)) == Decimal("432")
-    assert calculate_fixed_costs(microsoft_versions, date(2026, 7, 1)) == Decimal("576")
+    assert calculate_fixed_costs(microsoft_versions, date(2026, 5, 1), rates) == Decimal("432")
+    assert calculate_fixed_costs(microsoft_versions, date(2026, 6, 1), rates) == Decimal("456")
+    assert calculate_fixed_costs(microsoft_versions, date(2026, 7, 1), rates) == Decimal("640")
 
 
 def test_dashboard_service_functions_use_monthly_cost_totals() -> None:

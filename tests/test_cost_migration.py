@@ -25,6 +25,19 @@ def test_migration_creates_cost_schema_in_empty_database(tmp_path: Path) -> None
     assert "ck_cost_items_type_frequency" in checks
 
 
+def test_migration_creates_usd_mxn_history_schema(tmp_path: Path) -> None:
+    engine = _upgrade(tmp_path / "fx.db")
+    inspector = sa.inspect(engine)
+
+    assert "usd_mxn_rates" in inspector.get_table_names()
+    columns = {column["name"] for column in inspector.get_columns("usd_mxn_rates")}
+    assert {"series_id", "rate_date", "rate", "source", "created_at", "updated_at"} <= columns
+    checks = {constraint["name"] for constraint in inspector.get_check_constraints("usd_mxn_rates")}
+    assert "ck_usd_mxn_rates_positive_rate" in checks
+    unique_constraints = {constraint["name"] for constraint in inspector.get_unique_constraints("usd_mxn_rates")}
+    assert "uq_usd_mxn_rates_series_date" in unique_constraints
+
+
 def test_migration_upgrades_prior_cost_schema_and_preserves_rows(tmp_path: Path) -> None:
     database_path = tmp_path / "prior.db"
     engine = sa.create_engine(f"sqlite:///{database_path.as_posix()}")
@@ -81,9 +94,7 @@ def test_migration_upgrades_prior_cost_schema_and_preserves_rows(tmp_path: Path)
         microsoft = connection.execute(
             sa.text("SELECT entered_unit_cost, entered_currency FROM cost_items WHERE id = 3")
         ).one()
-        one_time = connection.execute(
-            sa.text("SELECT cost_type, billing_frequency FROM cost_items WHERE id = 7")
-        ).one()
+        one_time = connection.execute(sa.text("SELECT cost_type, billing_frequency FROM cost_items WHERE id = 7")).one()
 
     assert columns["created_at"]["nullable"] is False
     assert columns["updated_at"]["nullable"] is False

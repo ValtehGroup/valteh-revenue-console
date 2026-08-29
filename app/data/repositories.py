@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
 
@@ -11,7 +11,21 @@ import pandas as pd
 from sqlalchemy import or_, select
 
 from app.config import BASE_DIR, get_settings
-from app.domain.cost_engine import calculate_variable_cost, is_cost_effective, monthly_cost_amounts, normalize_cost_unit
+from app.data.fx_rate_repository import FxRateRepository
+from app.domain.cost_engine import (
+    ValuedUnitCost,
+    calculate_variable_cost,
+    catalog_cost_valuation_date,
+    fixed_cost_occurs,
+    fixed_cost_valuation_date,
+    is_cost_effective,
+    mexico_today,
+    monthly_cost_amounts,
+    normalize_cost_unit,
+    resolve_effective_cost_items,
+    value_cost_unit,
+)
+from app.domain.fx_rates import DatedFxRateBook
 from app.domain.models import (
     Client,
     ClientProfitability,
@@ -63,10 +77,13 @@ class SeedRepository:
     """CSV-backed repository used by the first app version."""
 
     data_dir: str | None = None
+    fx_rate_repository: FxRateRepository | None = None
+    _fx_rate_books: list[tuple[date, date, DatedFxRateBook]] = field(default_factory=list, init=False, repr=False)
 
     def __post_init__(self) -> None:
         settings = get_settings()
         self.data_path = settings.seed_data_dir if self.data_dir is None else BASE_DIR / self.data_dir
+        self._fx_repository = self.fx_rate_repository or FxRateRepository()
 
     def clients(self) -> list[Client]:
         from app.data.client_repository import ClientRepository
@@ -311,16 +328,61 @@ class SeedRepository:
         ]
 
     def cost_rates(self, as_of: date | None = None) -> dict[str, Decimal]:
-        as_of = as_of or date.today()
+        as_of = as_of or mexico_today()
         rates: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
-        for item in self.cost_items():
-            if item.cost_type == "variable" and is_cost_effective(item, as_of):
-                rates[normalize_cost_unit(item.unit)] += Decimal(str(item.unit_cost))
+        items = [item for item in self.cost_items() if item.cost_type == "variable" and is_cost_effective(item, as_of)]
+        fx_rates = self._dated_fx_rates(items, [as_of])
+        for item in items:
+            rates[normalize_cost_unit(item.unit)] += value_cost_unit(item, as_of, fx_rates).unit_cost_mxn
         return dict(rates)
 
     def monthly_cost_amounts(self, month: str):
         period_month = pd.Timestamp(f"{month}-01").date()
-        return monthly_cost_amounts(self.cost_items(), period_month, self.usage_for_month(month))
+        items = self.cost_items()
+        usage = self.usage_for_month(month)
+        relevant_items, valuation_dates = _monthly_fx_inputs(items, usage, period_month)
+        fx_rates = self._dated_fx_rates(relevant_items, valuation_dates)
+        return monthly_cost_amounts(items, period_month, usage, fx_rates)
+
+    def cost_catalog_valuations(
+        self,
+        cost_items: list[CostItem] | None = None,
+        *,
+        today: date | None = None,
+    ) -> dict[int, ValuedUnitCost]:
+        """Value catalog rows as of their relevant reference date in one FX query."""
+
+        items = cost_items if cost_items is not None else self.cost_items()
+        current_date = today or mexico_today()
+        valuation_dates = [catalog_cost_valuation_date(item, today=current_date) for item in items]
+        fx_rates = self._dated_fx_rates(items, valuation_dates)
+        return {
+            item.id: value_cost_unit(
+                item,
+                valuation_date,
+                fx_rates,
+                provisional=(
+                    item.enabled
+                    and item.record_type == "actual"
+                    and valuation_date == current_date
+                    and item.billing_frequency != "once"
+                    and (item.end_date is None or item.end_date >= current_date)
+                ),
+            )
+            for item, valuation_date in zip(items, valuation_dates, strict=True)
+        }
+
+    def variable_cost(self, usage_events: list[UsageEvent], cost_items: list[CostItem] | None = None) -> Decimal:
+        items = cost_items if cost_items is not None else self.cost_items()
+        valuation_dates = [event.event_timestamp.date() for event in usage_events]
+        relevant_by_id = {
+            item.id: item
+            for event in usage_events
+            for item in resolve_effective_cost_items(items, event.event_timestamp, cost_types={"variable"})
+            if normalize_cost_unit(item.unit) == normalize_cost_unit(event.event_type)
+        }
+        fx_rates = self._dated_fx_rates(list(relevant_by_id.values()), valuation_dates)
+        return calculate_variable_cost(usage_events, items, fx_rates)
 
     def client_profitability(self, client_id: int, month: str) -> ClientProfitability:
         usage = self.usage_for_client_month(client_id, month)
@@ -330,7 +392,7 @@ class SeedRepository:
         else:
             plan = next(plan for plan in self.pricing_plans() if plan.id == subscription.pricing_plan_id)
             revenue = calculate_client_revenue(usage, plan, subscription, pd.Timestamp(f"{month}-01").date())
-        variable_cost = calculate_variable_cost(usage, self.cost_items())
+        variable_cost = self.variable_cost(usage)
         return ClientProfitability(
             client_id=client_id,
             revenue=revenue,
@@ -429,8 +491,21 @@ class SeedRepository:
 
     def cost_history(self) -> list[dict[str, Decimal | str]]:
         rows = []
-        for month in self.available_months():
-            amounts = self.monthly_cost_amounts(month)
+        months = self.available_months()
+        items = self.cost_items()
+        all_relevant_items: list[CostItem] = []
+        all_valuation_dates: list[date] = []
+        monthly_inputs = []
+        for month in months:
+            period_month = pd.Timestamp(f"{month}-01").date()
+            month_usage = self.usage_for_month(month)
+            relevant_items, valuation_dates = _monthly_fx_inputs(items, month_usage, period_month)
+            all_relevant_items.extend(relevant_items)
+            all_valuation_dates.extend(valuation_dates)
+            monthly_inputs.append((month, period_month, month_usage))
+        fx_rates = self._dated_fx_rates(all_relevant_items, all_valuation_dates)
+        for month, period_month, month_usage in monthly_inputs:
+            amounts = monthly_cost_amounts(items, period_month, month_usage, fx_rates)
             rows.append(
                 {
                     "month": month,
@@ -451,11 +526,49 @@ class SeedRepository:
             )
         return rows
 
+    def _dated_fx_rates(
+        self,
+        cost_items: list[CostItem],
+        valuation_dates: list[date],
+    ) -> DatedFxRateBook | None:
+        requires_usd = any((item.entered_currency or item.currency).strip().upper() == "USD" for item in cost_items)
+        if not requires_usd or not valuation_dates:
+            return None
+        starting_at = min(valuation_dates)
+        ending_at = max(valuation_dates)
+        for cached_start, cached_end, rate_book in self._fx_rate_books:
+            if cached_start <= starting_at and cached_end >= ending_at:
+                return rate_book
+        rate_book = self._fx_repository.rate_book(starting_at, ending_at)
+        self._fx_rate_books.append((starting_at, ending_at, rate_book))
+        return rate_book
+
     def cost_versions(self, cost_key: str) -> list[CostItem]:
         return sorted(
             [item for item in self.cost_items() if item.cost_key == cost_key],
             key=lambda item: (item.start_date or date.min, item.id),
         )
+
+
+def _monthly_fx_inputs(
+    cost_items: list[CostItem],
+    usage_events: list[UsageEvent],
+    month: date,
+) -> tuple[list[CostItem], list[date]]:
+    """Identify the cost records and dates that can require FX for one month."""
+
+    relevant_by_id: dict[int, CostItem] = {}
+    valuation_dates: list[date] = []
+    for item in resolve_effective_cost_items(cost_items, month, cost_types={"fixed"}, month_scope=True):
+        if fixed_cost_occurs(item, month):
+            relevant_by_id[item.id] = item
+            valuation_dates.append(fixed_cost_valuation_date(item, month))
+    for event in usage_events:
+        for item in resolve_effective_cost_items(cost_items, event.event_timestamp, cost_types={"variable"}):
+            if normalize_cost_unit(item.unit) == normalize_cost_unit(event.event_type):
+                relevant_by_id[item.id] = item
+                valuation_dates.append(event.event_timestamp.date())
+    return list(relevant_by_id.values()), valuation_dates
 
 
 def _validate_required_cost_columns(df: pd.DataFrame) -> None:

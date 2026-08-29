@@ -5,7 +5,7 @@ from dash import Input, Output, dcc, html
 from app.components.charts import bar_chart, line_chart
 from app.components.tables import data_table
 from app.data.repositories import SeedRepository
-from app.domain.cost_engine import calculate_variable_cost, normalize_cost_unit
+from app.domain.cost_engine import normalize_cost_unit
 from app.domain.revenue_engine import calculate_client_revenue
 from app.domain.unit_economics import calculate_operating_margin
 from app.utils.currency import format_mxn
@@ -239,7 +239,7 @@ def _client_operating_margin(repo: SeedRepository, client_id: int, month: str) -
     revenue = (
         calculate_client_revenue(usage, plan, subscription, pd.Timestamp(f"{month}-01").date()) if plan else 0
     )
-    variable_cost = calculate_variable_cost(usage, repo.cost_items())
+    variable_cost = repo.variable_cost(usage)
     historical_client_ids = {
         client.id
         for client in repo.clients()

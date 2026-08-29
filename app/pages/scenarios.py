@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 
 import dash_bootstrap_components as dbc
@@ -9,7 +10,11 @@ from dash import Input, Output, dcc, html, no_update
 
 from app.components.chart_theme import apply_chart_theme
 from app.components.tables import data_table
+from app.config import get_settings
+from app.data.fx_rate_repository import FxRateRepository
 from app.data.repositories import SeedRepository
+from app.domain.fx_history_sync import FxHistorySyncService
+from app.domain.fx_rates import FxRateObservation
 from app.domain.scenario_forecast import (
     DEFAULT_DOWNSIDE_USD_MXN_CHANGE,
     DEFAULT_REFERENCE_USD_MXN_RATE,
@@ -17,12 +22,14 @@ from app.domain.scenario_forecast import (
     ScenarioMonth,
     forecast_scenarios,
 )
+from app.integrations.banxico_sie_api import BanxicoSIEAPIError, BanxicoSIEClient
 from app.utils.currency import format_mxn, format_percent
 
 
 def layout():
+    reference_rate = _latest_reference_rate()
     assumption_summary, scenario_results = _scenario_outputs(
-        DEFAULT_REFERENCE_USD_MXN_RATE,
+        reference_rate,
         DEFAULT_DOWNSIDE_USD_MXN_CHANGE * Decimal("100"),
         DEFAULT_UPSIDE_USD_MXN_CHANGE * Decimal("100"),
     )
@@ -39,10 +46,11 @@ def layout():
                         html.Div(id="scenario-assumption-summary", children=assumption_summary, className="h-100"),
                         lg=7,
                     ),
-                    dbc.Col(_exchange_rate_controls(), lg=5),
+                    dbc.Col(_exchange_rate_controls(reference_rate), lg=5),
                 ],
                 className="g-3 mb-4 align-items-stretch",
             ),
+            _fx_history_panel(),
             html.Div(id="scenario-results", children=scenario_results),
         ]
     )
@@ -72,8 +80,20 @@ def register_callbacks(app) -> None:
         except ValueError as exc:
             return dbc.Alert(str(exc), color="danger", className="h-100 mb-0"), no_update
 
+    @app.callback(
+        Output("scenario-reference-usd-mxn-rate", "value"),
+        Output("scenario-fx-update-status", "children"),
+        Output("scenario-fx-latest", "children"),
+        Output("scenario-fx-history-chart", "figure"),
+        Input("scenario-fx-update", "n_clicks"),
+        prevent_initial_call=True,
+        running=[(Output("scenario-fx-update", "disabled"), True, False)],
+    )
+    def update_fx_history(_n_clicks: int | None):
+        return _update_fx_history()
 
-def _exchange_rate_controls() -> dbc.Card:
+
+def _exchange_rate_controls(reference_rate: Decimal = DEFAULT_REFERENCE_USD_MXN_RATE) -> dbc.Card:
     return dbc.Card(
         dbc.CardBody(
             dbc.Row(
@@ -81,7 +101,7 @@ def _exchange_rate_controls() -> dbc.Card:
                     _scenario_input(
                         "Baseline USD:MXN",
                         "scenario-reference-usd-mxn-rate",
-                        float(DEFAULT_REFERENCE_USD_MXN_RATE),
+                        float(reference_rate),
                         min_value=0.01,
                         step=0.01,
                     ),
@@ -107,6 +127,135 @@ def _exchange_rate_controls() -> dbc.Card:
     )
 
 
+def _latest_reference_rate(repository: FxRateRepository | None = None) -> Decimal:
+    latest = (repository or FxRateRepository()).latest()
+    return latest.rate if latest is not None else DEFAULT_REFERENCE_USD_MXN_RATE
+
+
+def _fx_history_panel(repository: FxRateRepository | None = None) -> dbc.Card:
+    repo = repository or FxRateRepository()
+    status = repo.status()
+    token_configured = get_settings().banxico_sie_token is not None
+    observations = _recent_fx_observations(repo, status.latest)
+    return dbc.Card(
+        dbc.CardBody(
+            [
+                dbc.Row(
+                    [
+                        dbc.Col(
+                            [
+                                html.H2("USD/MXN FIX history", className="h5 mb-1"),
+                                html.Div(
+                                    _latest_fx_label(status.latest),
+                                    id="scenario-fx-latest",
+                                    className="small text-muted",
+                                ),
+                            ],
+                            width=True,
+                        ),
+                        dbc.Col(
+                            dbc.Button(
+                                "Update FX history",
+                                id="scenario-fx-update",
+                                color="primary",
+                                disabled=not token_configured,
+                            ),
+                            width="auto",
+                        ),
+                    ],
+                    className="align-items-center g-2",
+                ),
+                html.Div(
+                    "" if token_configured else "Banxico SIE token is not configured.",
+                    id="scenario-fx-update-status",
+                    className="small text-muted mt-1",
+                ),
+                dcc.Loading(
+                    dcc.Graph(
+                        id="scenario-fx-history-chart",
+                        figure=_fx_history_figure(observations),
+                        config={"displaylogo": False},
+                    ),
+                    type="circle",
+                ),
+            ]
+        ),
+        className="content-card mb-4",
+    )
+
+
+def _update_fx_history(
+    repository: FxRateRepository | None = None,
+    client: BanxicoSIEClient | None = None,
+):
+    repo = repository or FxRateRepository()
+    if client is None:
+        token = get_settings().banxico_sie_token
+        if token is None:
+            return (
+                no_update,
+                _fx_status_message("Banxico SIE token is not configured.", error=True),
+                no_update,
+                no_update,
+            )
+        client = BanxicoSIEClient(token.get_secret_value())
+    try:
+        result = FxHistorySyncService(client, repo).sync()
+    except (BanxicoSIEAPIError, ValueError, RuntimeError) as exc:
+        return no_update, _fx_status_message(str(exc), error=True), no_update, no_update
+    except Exception:
+        return no_update, _fx_status_message("FX history update failed.", error=True), no_update, no_update
+
+    observations = _recent_fx_observations(repo, result.latest)
+    message = (
+        f"Updated through {result.latest.rate_date.isoformat()}: "
+        f"{result.inserted} inserted, {result.updated} refreshed."
+    )
+    return (
+        format(result.latest.rate, "f"),
+        _fx_status_message(message),
+        _latest_fx_label(result.latest),
+        _fx_history_figure(observations),
+    )
+
+
+def _recent_fx_observations(
+    repository: FxRateRepository,
+    latest: FxRateObservation | None,
+) -> list[FxRateObservation]:
+    if latest is None:
+        return []
+    return repository.observations(latest.rate_date - timedelta(days=365), latest.rate_date)
+
+
+def _latest_fx_label(latest: FxRateObservation | None) -> str:
+    if latest is None:
+        return "No stored FIX rate"
+    return f"Latest FIX {latest.rate:.4f} · {latest.rate_date.isoformat()}"
+
+
+def _fx_status_message(message: str, *, error: bool = False) -> html.Span:
+    return html.Span(message, className=f"small {'text-danger' if error else 'text-success'}")
+
+
+def _fx_history_figure(observations: list[FxRateObservation]):
+    if not observations:
+        figure = px.line(title="USD/MXN FIX")
+        figure.add_annotation(text="No FX history stored", showarrow=False)
+    else:
+        frame = pd.DataFrame(
+            {
+                "date": [row.rate_date for row in observations],
+                "rate": [float(row.rate) for row in observations],
+            }
+        )
+        figure = px.line(frame, x="date", y="rate", title="USD/MXN FIX")
+        figure.update_traces(hovertemplate="%{x|%Y-%m-%d}<br>%{y:.4f}<extra></extra>")
+    figure.update_layout(height=300, margin=dict(l=20, r=20, t=50, b=20), xaxis_title="")
+    figure.update_yaxes(title="MXN per USD", tickformat=".4f")
+    return apply_chart_theme(figure)
+
+
 def _scenario_input(
     label: str,
     component_id: str,
@@ -118,7 +267,7 @@ def _scenario_input(
     input_component = dcc.Input(
         id=component_id,
         type="text",
-        inputMode="decimal",
+        inputMode="numeric",
         value=value,
         min=min_value,
         step=step,

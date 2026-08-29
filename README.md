@@ -57,9 +57,11 @@ Local configuration belongs in the ignored `.env` file. Commit only safe placeho
 | `CURRENCY` | Dashboard reporting currency | `MXN` |
 | `ANTHROPIC_ADMIN_KEY` | Server-only Anthropic Admin API credential | unset |
 | `ANTHROPIC_HISTORY_OVERLAP_DAYS` | Persisted days refreshed by incremental sync | `7` |
+| `BANXICO_SIE_TOKEN` | Server-only Banxico SIE API credential | unset |
 
-Never place `ANTHROPIC_ADMIN_KEY` in source code, browser state, database rows, logs, Docker build arguments, or a
-committed environment file. In production, inject it through the hosting platform's secret manager.
+Never place `ANTHROPIC_ADMIN_KEY` or `BANXICO_SIE_TOKEN` in source code, browser state, database rows, logs, Docker
+build arguments, or a committed environment file. In production, inject them through the hosting platform's secret
+manager.
 
 ## Data lifecycle
 
@@ -99,6 +101,16 @@ matching workspace, model, and usage dimensions; unmatched amounts remain explic
 
 API-key ownership assignments are stored with effective dates. Raw provider facts remain separate from derived cost
 allocation.
+
+## USD/MXN FIX history
+
+The Scenarios page stores Banco de México SIE series `SF43718`: the official USD/MXN FIX rate by determination date.
+The application never contacts Banxico during startup or page rendering. **Update FX history** performs the explicit
+sync from `2015-01-01` on first use and refreshes a seven-calendar-day overlap on later updates. Weekends, Mexican bank
+holidays, and not-yet-published days normally have no observation.
+
+After a successful update, the latest persisted FIX becomes the editable Scenario baseline. This does not rewrite
+stored costs and does not change the static USD/MXN rate used when normal costs are ingested.
 
 Useful commands after configuring the Admin key:
 

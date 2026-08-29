@@ -482,6 +482,7 @@ def _catalog_rows(repo: SeedRepository, status: str = "all") -> list[dict]:
         items = [item for item in items if item.enabled]
     elif status == "inactive":
         items = [item for item in items if not item.enabled]
+    valuations = repo.cost_catalog_valuations(items)
     return [
         {
             "id": f"{item.id:04d}",
@@ -502,7 +503,13 @@ def _catalog_rows(repo: SeedRepository, status: str = "all") -> list[dict]:
             "unit": item.unit,
             "unit_cost": f"{item.display_unit_cost:,.2f}",
             "currency": item.display_currency,
-            "base_amount": f"${item.configured_amount:,.2f} MXN",
+            "fx_rate": f"{valuations[item.id].fx_rate:,.4f}" if valuations[item.id].fx_rate is not None else "N/A",
+            "fx_date": valuations[item.id].fx_rate_date.isoformat() if valuations[item.id].fx_rate_date else "",
+            "valuation_date": valuations[item.id].valuation_date.isoformat(),
+            "fx_status": (
+                "Provisional" if valuations[item.id].fx_rate is not None and valuations[item.id].provisional else ""
+            ),
+            "base_amount": f"${item.quantity * valuations[item.id].unit_cost_mxn:,.2f} MXN",
             "start_date": item.start_date.isoformat() if item.start_date else "",
             "end_date": item.end_date.isoformat() if item.end_date else "",
             "record_type": item.record_type,
@@ -773,6 +780,10 @@ def _monthly_cost_rows(repo: SeedRepository, selected_month: str) -> list[dict]:
             "quantity": f"{cost.quantity:,.0f}",
             "unit_cost": f"{cost.unit_cost:,.2f}",
             "currency": cost.currency,
+            "fx_rate": f"{cost.fx_rate:,.4f}" if cost.fx_rate is not None else "",
+            "fx_date": cost.fx_rate_date.isoformat() if cost.fx_rate_date else "",
+            "valuation_date": cost.valuation_date.isoformat() if cost.fx_rate is not None else "",
+            "fx_status": "Provisional" if cost.provisional_fx and cost.fx_rate is not None else "",
             "unit": cost.unit,
             "amount": format_mxn(cost.amount),
             "start_date": cost.start_date.isoformat() if cost.start_date else "",
@@ -864,7 +875,7 @@ def _year_cost_chart(rows: list[dict], year: int):
         color="cost_type",
         barmode="stack",
         title=f"Monthly Costs in {year}",
-        labels={"amount": "Cost (MXN)", "month": "", "cost_type": "Cost type"},
+        labels={"amount": "MXN", "month": "", "cost_type": "Cost type"},
         color_discrete_sequence=DEFAULT_PLOTLY_COLORWAY,
     )
     figure.update_layout(

@@ -113,7 +113,7 @@ def forecast_scenarios(
         usd_mxn_rate = scenario_usd_mxn_rate(config, reference_rate)
         scenario_cost_items = cost_items_at_usd_mxn_rate(base_cost_items, usd_mxn_rate)
         profiles = current_client_profiles(repo, base_month, scenario_cost_items)
-        fixed_cost = calculate_fixed_costs(scenario_cost_items, base_month_date)
+        fixed_cost = calculate_fixed_costs(scenario_cost_items, base_month_date, use_stored_values=True)
         forecasts.extend(
             month_forecast(config, month, month_index, profiles, fixed_cost, usd_mxn_rate)
             for month_index, month in enumerate(months, start=1)
@@ -151,6 +151,7 @@ def current_client_profiles(
             variable_cost = calculate_variable_cost(
                 repo.usage_for_client_month(client.id, month),
                 scenario_cost_items,
+                use_stored_values=True,
             )
         profiles.append(
             ClientEconomicsProfile(
