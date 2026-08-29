@@ -19,7 +19,7 @@ def test_executive_bar_chart_uses_compact_mxn_hover_and_grouped_axis() -> None:
     figure = _executive_bar_chart({"SAREMI": Decimal("1555")}, "Revenue")
 
     assert figure.data[0].hovertemplate == "%{x}<br>%{customdata}<extra></extra>"
-    assert list(figure.data[0].customdata) == ["1.6k MXN"]
+    assert list(figure.data[0].customdata) == ["$1.6k MXN"]
     assert figure.layout.yaxis.tickformat == ",.0f"
 
 
@@ -27,7 +27,7 @@ def test_executive_pie_chart_uses_compact_mxn_hover() -> None:
     figure = _executive_pie_chart({"SAREMI": Decimal("1555")}, "Revenue")
 
     assert figure.data[0].hovertemplate == "%{label}<br>%{customdata}<extra></extra>"
-    assert list(figure.data[0].customdata) == ["1.6k MXN"]
+    assert list(figure.data[0].customdata) == ["$1.6k MXN"]
 
 
 def test_mxn_hover_format_keeps_one_decimal_in_thousands() -> None:

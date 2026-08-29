@@ -5,25 +5,27 @@ from dash import Input, Output, dcc, html
 from app.components.charts import bar_chart, line_chart
 from app.components.tables import data_table
 from app.data.repositories import SeedRepository
-from app.domain.cost_engine import normalize_cost_unit
+from app.domain.display_currency import normalize_display_currency, usd_view_note
+from app.domain.fx_rates import FxRateUnavailableError
 from app.domain.revenue_engine import calculate_client_revenue
 from app.domain.unit_economics import calculate_operating_margin
 from app.utils.currency import format_mxn
 
 
-def layout():
+def layout(display_currency: str | None = "MXN"):
+    currency = normalize_display_currency(display_currency)
     repo = SeedRepository()
     clients = repo.clients()
     return html.Div(
         [
             html.H1("Clients", className="h3"),
             html.P("Client-specific usage, revenue, cost, and margin history.", className="text-muted"),
-            detail_section(repo, clients),
+            detail_section(repo, clients, currency),
         ]
     )
 
 
-def detail_section(repo: SeedRepository, clients) -> html.Div:
+def detail_section(repo: SeedRepository, clients, display_currency: str = "MXN") -> html.Div:
     if not clients:
         return html.Div(
             [
@@ -72,7 +74,10 @@ def detail_section(repo: SeedRepository, clients) -> html.Div:
                 ],
                 className="mb-4",
             ),
-            html.Div(id="client-detail-content", children=_client_detail_content(default_client_id, default_month)),
+            html.Div(
+                id="client-detail-content",
+                children=_client_detail_content(default_client_id, default_month, display_currency),
+            ),
         ]
     )
 
@@ -94,12 +99,21 @@ def register_callbacks(app) -> None:
         Input("client-detail-client-filter", "value"),
         Input("client-detail-month-filter", "value"),
         Input("clients-refresh", "data"),
+        Input("display-currency-store", "data"),
     )
-    def update_client_detail(client_id: int, month: str, _refresh: int):
-        return _client_detail_content(client_id, month)
+    def update_client_detail(client_id: int, month: str, _refresh: int, display_currency: str | None):
+        try:
+            return _client_detail_content(client_id, month, display_currency)
+        except FxRateUnavailableError as exc:
+            return dbc.Alert(str(exc), color="danger")
 
 
-def _client_detail_content(client_id: int | None, selected_month: str | None = None):
+def _client_detail_content(
+    client_id: int | None,
+    selected_month: str | None = None,
+    display_currency: str | None = "MXN",
+):
+    currency = normalize_display_currency(display_currency)
     repo = SeedRepository()
     client = next((client for client in repo.clients() if client.id == client_id), None)
     if client is None:
@@ -108,21 +122,16 @@ def _client_detail_content(client_id: int | None, selected_month: str | None = N
     detail_month = selected_month if selected_month in months else _latest_client_month(repo, client.id, months)
     usage = repo.usage_history_for_client_month(client.id, detail_month)
     service_usage = {}
-    service_cost = {}
-    service_revenue = {}
-    rates = repo.cost_rates(pd.Timestamp(f"{detail_month}-01").date())
+    trend_by_month = repo.client_presentations(client.id, months, currency)
+    presentation = trend_by_month[detail_month]
+    service_cost = presentation["cost_by_service"]
+    service_revenue = presentation["revenue_by_service"]
     subscription = repo.subscription_for_client_month(client.id, detail_month)
     plan = (
         next(plan for plan in repo.pricing_plans() if plan.id == subscription.pricing_plan_id) if subscription else None
     )
     for event in usage:
         service_usage[event.service_code] = service_usage.get(event.service_code, 0) + float(event.quantity)
-        service_cost[event.service_code] = service_cost.get(event.service_code, 0) + float(event.quantity) * float(
-            rates.get(normalize_cost_unit(event.event_type), 0)
-        )
-        service_revenue[event.service_code] = service_revenue.get(event.service_code, 0) + (
-            _event_price(event.event_type, plan) * float(event.quantity) if plan else 0
-        )
     trend = pd.DataFrame(
         {
             "month": months,
@@ -130,7 +139,7 @@ def _client_detail_content(client_id: int | None, selected_month: str | None = N
                 sum(float(event.quantity) for event in repo.usage_history_for_client_month(client.id, month))
                 for month in months
             ],
-            "operating_margin": [_client_operating_margin(repo, client.id, month) for month in months],
+            "operating_margin": [float(trend_by_month[month]["operating_margin"]) for month in months],
         }
     )
     historical_usage = sorted(
@@ -160,14 +169,15 @@ def _client_detail_content(client_id: int | None, selected_month: str | None = N
     ]
     return html.Div(
         [
+            usd_view_note(currency),
             html.H2(f"{client.name} · {client.client_code}", className="h5"),
             dbc.Alert("No pricing plan for the selected period", color="secondary", is_open=plan is None),
             dbc.Alert("No usage recorded for the selected period", color="secondary", is_open=not usage),
             dbc.Row(
                 [
-                    dbc.Col(dcc.Graph(figure=bar_chart(service_usage, "Usage by Service")), md=4),
-                    dbc.Col(dcc.Graph(figure=bar_chart(service_revenue, "Revenue by Service")), md=4),
-                    dbc.Col(dcc.Graph(figure=bar_chart(service_cost, "Cost by Service")), md=4),
+                    dbc.Col(dcc.Graph(figure=_usage_bar(service_usage, "Usage by Service")), md=4),
+                    dbc.Col(dcc.Graph(figure=_money_bar(service_revenue, "Revenue by Service", currency)), md=4),
+                    dbc.Col(dcc.Graph(figure=_money_bar(service_cost, "Cost by Service", currency)), md=4),
                 ],
                 className="mb-4",
             ),
@@ -175,7 +185,9 @@ def _client_detail_content(client_id: int | None, selected_month: str | None = N
                 [
                     dbc.Col(dcc.Graph(figure=line_chart(trend, "month", "usage", "Historical Usage Trend")), md=6),
                     dbc.Col(
-                        dcc.Graph(figure=line_chart(trend, "month", "operating_margin", "Historical Margin Trend")),
+                        dcc.Graph(
+                            figure=_money_line(trend, "month", "operating_margin", "Historical Margin Trend", currency)
+                        ),
                         md=6,
                     ),
                 ],
@@ -236,14 +248,10 @@ def _client_operating_margin(repo: SeedRepository, client_id: int, month: str) -
         (plan for plan in repo.pricing_plans() if subscription and plan.id == subscription.pricing_plan_id),
         None,
     )
-    revenue = (
-        calculate_client_revenue(usage, plan, subscription, pd.Timestamp(f"{month}-01").date()) if plan else 0
-    )
+    revenue = calculate_client_revenue(usage, plan, subscription, pd.Timestamp(f"{month}-01").date()) if plan else 0
     variable_cost = repo.variable_cost(usage)
     historical_client_ids = {
-        client.id
-        for client in repo.clients()
-        if repo.subscription_for_client_month(client.id, month) is not None
+        client.id for client in repo.clients() if repo.subscription_for_client_month(client.id, month) is not None
     }
     allocated_fixed_cost = (
         repo.monthly_summary(month)["fixed_cost"] / len(historical_client_ids)
@@ -260,10 +268,7 @@ def _client_operating_margin(repo: SeedRepository, client_id: int, month: str) -
 
 
 def _month_options(months: list[str]) -> list[dict[str, str]]:
-    return [
-        {"label": pd.Timestamp(f"{month}-01").strftime("%B %Y"), "value": month}
-        for month in reversed(months)
-    ]
+    return [{"label": pd.Timestamp(f"{month}-01").strftime("%B %Y"), "value": month} for month in reversed(months)]
 
 
 def _revenue_type_label(revenue_type: str) -> str:
@@ -272,3 +277,23 @@ def _revenue_type_label(revenue_type: str) -> str:
         "usage": "Usage (variable)",
     }
     return labels.get(revenue_type, revenue_type)
+
+
+def _money_bar(data: dict, title: str, display_currency: str):
+    figure = bar_chart(data, title)
+    figure.update_yaxes(title=display_currency)
+    figure.update_traces(hovertemplate=f"%{{x}}<br>$%{{y:,.2f}} {display_currency}<extra></extra>")
+    return figure
+
+
+def _usage_bar(data: dict, title: str):
+    figure = bar_chart(data, title)
+    figure.update_yaxes(title="Usage")
+    return figure
+
+
+def _money_line(frame, x: str, y: str, title: str, display_currency: str):
+    figure = line_chart(frame, x, y, title)
+    figure.update_yaxes(title=display_currency, tickprefix="$", separatethousands=True)
+    figure.update_traces(hovertemplate=f"%{{x}}<br>$%{{y:,.2f}} {display_currency}<extra></extra>")
+    return figure

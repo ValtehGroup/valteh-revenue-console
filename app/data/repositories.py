@@ -23,6 +23,11 @@ from app.domain.cost_engine import (
     resolve_effective_cost_items,
     value_cost_unit,
 )
+from app.domain.display_currency import (
+    normalize_display_currency,
+    translate_cost_amount,
+    translate_revenue_amount,
+)
 from app.domain.fx_rates import DatedFxRateBook, ResolvedFxRate
 from app.domain.models import (
     Client,
@@ -38,6 +43,7 @@ from app.domain.revenue_engine import (
     calculate_client_revenue,
     calculate_subscription_revenue,
     calculate_usage_revenue,
+    revenue_amounts,
 )
 from app.domain.unit_economics import calculate_gross_margin, calculate_gross_margin_percentage
 from app.utils.currency import BASE_CURRENCY, STATIC_EXCHANGE_RATES_TO_MXN, convert_to_mxn
@@ -404,6 +410,158 @@ class SeedRepository:
             split["total"] += client_split["total"]
         return split
 
+    def monthly_revenue_amounts(
+        self,
+        month: str,
+        *,
+        client_id: int | None = None,
+        historical: bool = False,
+    ):
+        period_month = pd.Timestamp(f"{month}-01").date()
+        clients = self.clients() if client_id is not None else self.active_clients(month)
+        amounts = []
+        for client in clients:
+            if client_id is not None and client.id != client_id:
+                continue
+            subscription = (
+                self.subscription_for_client_month(client.id, month)
+                if historical
+                else self.active_subscription_for_client_month(client.id, month)
+            )
+            if subscription is None:
+                continue
+            plan = next(
+                plan for plan in self.pricing_plans(client_id=client.id) if plan.id == subscription.pricing_plan_id
+            )
+            usage = (
+                self.usage_history_for_client_month(client.id, month)
+                if historical
+                else self.usage_for_client_month(client.id, month)
+            )
+            amounts.extend(revenue_amounts(usage, plan, subscription, period_month))
+        return amounts
+
+    def monthly_presentation(self, month: str, display_currency: str = "MXN") -> dict:
+        currency = normalize_display_currency(display_currency)
+        revenue_amounts_for_month = self.monthly_revenue_amounts(month)
+        cost_amounts_for_month = self.monthly_cost_amounts(month)
+        dates = [amount.recognition_date for amount in revenue_amounts_for_month]
+        dates.extend(amount.valuation_date for amount in cost_amounts_for_month if amount.valuation_date is not None)
+        rates = self.usd_mxn_rates_for_dates(dates) if currency == "USD" else {}
+        translated_revenue = [
+            (amount, translate_revenue_amount(amount, currency, rates)) for amount in revenue_amounts_for_month
+        ]
+        translated_costs = [
+            (amount, translate_cost_amount(amount, currency, rates)) for amount in cost_amounts_for_month
+        ]
+        revenue = sum((value for _, value in translated_revenue), Decimal("0"))
+        variable_cost = sum(
+            (value for amount, value in translated_costs if amount.cost_type == "variable"), Decimal("0")
+        )
+        fixed_cost = sum((value for amount, value in translated_costs if amount.cost_type == "fixed"), Decimal("0"))
+        operating_margin = revenue - variable_cost - fixed_cost
+        return {
+            "currency": currency,
+            "summary": {
+                "revenue": revenue,
+                "variable_cost": variable_cost,
+                "fixed_cost": fixed_cost,
+                "gross_margin": revenue - variable_cost,
+                "operating_margin": operating_margin,
+                "burn_rate": abs(min(operating_margin, Decimal("0"))),
+            },
+            "revenue_by_service": _sum_presented(translated_revenue, lambda amount: amount.service_line),
+            "revenue_by_type": _sum_presented(
+                translated_revenue,
+                lambda amount: "usage" if amount.revenue_type == "usage" else "subscription",
+            ),
+            "revenue_by_client": _sum_presented(translated_revenue, lambda amount: amount.client_id),
+            "cost_by_service": _sum_presented(translated_costs, lambda amount: amount.service_line),
+            "cost_by_provider": _sum_presented(translated_costs, lambda amount: amount.provider or "Unassigned"),
+            "cost_by_category": _sum_presented(translated_costs, lambda amount: amount.category),
+            "translated_revenue": translated_revenue,
+            "translated_costs": translated_costs,
+        }
+
+    def client_monthly_presentation(
+        self,
+        client_id: int,
+        month: str,
+        display_currency: str = "MXN",
+    ) -> dict:
+        return self.client_presentations(client_id, [month], display_currency)[month]
+
+    def client_presentations(
+        self,
+        client_id: int,
+        months: list[str],
+        display_currency: str = "MXN",
+    ) -> dict[str, dict]:
+        currency = normalize_display_currency(display_currency)
+        items = self.cost_items()
+        inputs = []
+        relevant_items = []
+        valuation_dates = []
+        for month in months:
+            period_month = pd.Timestamp(f"{month}-01").date()
+            all_usage = self.usage_for_month(month)
+            client_usage = self.usage_history_for_client_month(client_id, month)
+            month_items, month_dates = _monthly_fx_inputs(items, all_usage, period_month)
+            client_items, client_dates = _monthly_fx_inputs(items, client_usage, period_month)
+            relevant_items.extend(month_items)
+            relevant_items.extend(client_items)
+            valuation_dates.extend(month_dates)
+            valuation_dates.extend(client_dates)
+            inputs.append((month, period_month, all_usage, client_usage))
+        source_rates = self._dated_fx_rates(relevant_items, valuation_dates)
+
+        occurrences = {}
+        display_dates = []
+        for month, period_month, all_usage, client_usage in inputs:
+            revenue_for_client = self.monthly_revenue_amounts(month, client_id=client_id, historical=True)
+            all_costs = monthly_cost_amounts(items, period_month, all_usage, source_rates)
+            client_costs = [
+                amount
+                for amount in monthly_cost_amounts(items, period_month, client_usage, source_rates)
+                if amount.cost_type == "variable"
+            ]
+            fixed_costs = [amount for amount in all_costs if amount.cost_type == "fixed"]
+            occurrences[month] = (revenue_for_client, client_costs, fixed_costs)
+            display_dates.extend(amount.recognition_date for amount in revenue_for_client)
+            display_dates.extend(
+                amount.valuation_date for amount in [*client_costs, *fixed_costs] if amount.valuation_date is not None
+            )
+        rates = self.usd_mxn_rates_for_dates(display_dates) if currency == "USD" else {}
+
+        presentations = {}
+        clients = self.clients()
+        for month, (revenue_for_client, client_costs, fixed_costs) in occurrences.items():
+            translated_revenue = [
+                (amount, translate_revenue_amount(amount, currency, rates)) for amount in revenue_for_client
+            ]
+            translated_variable = [(amount, translate_cost_amount(amount, currency, rates)) for amount in client_costs]
+            translated_fixed = [(amount, translate_cost_amount(amount, currency, rates)) for amount in fixed_costs]
+            subscribed_client_ids = {
+                client.id for client in clients if self.subscription_for_client_month(client.id, month) is not None
+            }
+            allocated_fixed = (
+                sum((value for _, value in translated_fixed), Decimal("0")) / Decimal(len(subscribed_client_ids))
+                if client_id in subscribed_client_ids and subscribed_client_ids
+                else Decimal("0")
+            )
+            revenue = sum((value for _, value in translated_revenue), Decimal("0"))
+            variable_cost = sum((value for _, value in translated_variable), Decimal("0"))
+            presentations[month] = {
+                "currency": currency,
+                "revenue": revenue,
+                "variable_cost": variable_cost,
+                "allocated_fixed_cost": allocated_fixed,
+                "operating_margin": revenue - variable_cost - allocated_fixed,
+                "revenue_by_service": _sum_presented(translated_revenue, lambda amount: amount.service_line),
+                "cost_by_service": _sum_presented(translated_variable, lambda amount: amount.service_line),
+            }
+        return presentations
+
     def monthly_summary(self, month: str) -> dict[str, Decimal]:
         revenue = sum(
             (self.client_profitability(client.id, month).revenue for client in self.active_clients(month)),
@@ -468,7 +626,8 @@ class SeedRepository:
             totals[cost.category] += cost.amount
         return dict(totals)
 
-    def cost_history(self) -> list[dict[str, Decimal | str]]:
+    def cost_history(self, display_currency: str = "MXN") -> list[dict[str, Decimal | str]]:
+        currency = normalize_display_currency(display_currency)
         rows = []
         months = self.available_months()
         items = self.cost_items()
@@ -483,24 +642,37 @@ class SeedRepository:
             all_valuation_dates.extend(valuation_dates)
             monthly_inputs.append((month, period_month, month_usage))
         fx_rates = self._dated_fx_rates(all_relevant_items, all_valuation_dates)
-        for month, period_month, month_usage in monthly_inputs:
-            amounts = monthly_cost_amounts(items, period_month, month_usage, fx_rates)
+        amounts_by_month = [
+            (month, monthly_cost_amounts(items, period_month, month_usage, fx_rates))
+            for month, period_month, month_usage in monthly_inputs
+        ]
+        display_dates = [
+            amount.valuation_date
+            for _, amounts in amounts_by_month
+            for amount in amounts
+            if amount.valuation_date is not None
+        ]
+        display_rates = self.usd_mxn_rates_for_dates(display_dates) if currency == "USD" else {}
+        for month, amounts in amounts_by_month:
+            translated = [(cost, translate_cost_amount(cost, currency, display_rates)) for cost in amounts]
             rows.append(
                 {
                     "month": month,
                     "fixed": sum(
                         (
-                            cost.amount
-                            for cost in amounts
+                            value
+                            for cost, value in translated
                             if cost.cost_type == "fixed" and cost.billing_frequency != "once"
                         ),
                         Decimal("0"),
                     ),
-                    "variable": sum((cost.amount for cost in amounts if cost.cost_type == "variable"), Decimal("0")),
-                    "one_time": sum(
-                        (cost.amount for cost in amounts if cost.billing_frequency == "once"), Decimal("0")
+                    "variable": sum(
+                        (value for cost, value in translated if cost.cost_type == "variable"), Decimal("0")
                     ),
-                    "total": sum((cost.amount for cost in amounts), Decimal("0")),
+                    "one_time": sum(
+                        (value for cost, value in translated if cost.billing_frequency == "once"), Decimal("0")
+                    ),
+                    "total": sum((value for _, value in translated), Decimal("0")),
                 }
             )
         return rows
@@ -549,6 +721,13 @@ def _monthly_fx_inputs(
                 relevant_by_id[item.id] = item
                 valuation_dates.append(event.event_timestamp.date())
     return list(relevant_by_id.values()), valuation_dates
+
+
+def _sum_presented(pairs: list[tuple[object, Decimal]], key) -> dict:
+    totals = defaultdict(lambda: Decimal("0"))
+    for amount, value in pairs:
+        totals[key(amount)] += value
+    return dict(totals)
 
 
 def _validate_required_cost_columns(df: pd.DataFrame) -> None:

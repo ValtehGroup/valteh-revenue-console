@@ -13,12 +13,14 @@ from app.data.client_repository import (
     ClientUpdateCommand,
 )
 from app.data.repositories import SeedRepository
+from app.domain.display_currency import normalize_display_currency
 from app.domain.unit_economics import money
 from app.pages.client_detail import detail_section
 from app.utils.currency import format_mxn, format_percent
 
 
-def layout():
+def layout(display_currency: str | None = "MXN"):
+    currency = normalize_display_currency(display_currency)
     repo = SeedRepository()
     month = repo.available_months()[-1]
     clients = repo.clients()
@@ -77,7 +79,7 @@ def layout():
                 ),
                 className="content-card mb-4",
             ),
-            detail_section(repo, clients),
+            detail_section(repo, clients, currency),
             dbc.Modal(
                 [
                     dbc.ModalHeader(dbc.ModalTitle(id="client-action-title"), close_button=False),

@@ -444,6 +444,42 @@ label {
   border-top-color: var(--color-text-muted) !important;
 }
 
+.sidebar-preferences {
+  align-items: stretch;
+  display: flex;
+  gap: var(--space-2);
+}
+
+.display-currency-toggle {
+  align-items: center;
+  background: var(--color-surface-elevated);
+  border: 0.0625rem solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  display: flex;
+  gap: var(--space-2);
+  min-height: 2.75rem;
+  padding: var(--space-1) var(--space-2);
+}
+
+.display-currency-options .form-check {
+  margin: 0;
+  padding: 0;
+}
+
+.display-currency-option {
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.3rem 0.42rem;
+}
+
+.display-currency-option.active {
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
+}
+
 #claude-report-range .DateRangePickerInput,
 #claude-report-range .DateInput,
 #claude-report-range .DateInput_input {

@@ -1,6 +1,7 @@
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
+from app.presentation_currency import display_currency_store, display_currency_toggle
 from app.theme import theme_store, theme_toggle
 
 NAV_ITEMS = [
@@ -41,7 +42,7 @@ def app_layout() -> html.Div:
             html.Div(
                 [
                     dbc.NavLink(GUIDE_ITEM[0], href=GUIDE_ITEM[1], active="exact"),
-                    theme_toggle(),
+                    html.Div([display_currency_toggle(), theme_toggle()], className="sidebar-preferences"),
                 ],
                 className="sidebar-footer",
             ),
@@ -52,6 +53,7 @@ def app_layout() -> html.Div:
         [
             dcc.Location(id="url"),
             theme_store(),
+            display_currency_store(),
             dcc.Store(id="anthropic-live-report-cache", storage_type="session"),
             sidebar,
             html.Main(id="page-content", className="content"),

@@ -9,11 +9,21 @@ from app.components.filters import month_filter
 from app.components.kpi_card import kpi_card
 from app.components.tables import data_table
 from app.data.repositories import SeedRepository
+from app.domain.display_currency import (
+    format_compact_currency,
+    format_currency,
+    normalize_display_currency,
+    translate_mxn,
+    usd_view_note,
+)
+from app.domain.fx_rates import FxRateUnavailableError
+from app.domain.revenue_engine import monthly_revenue_recognition_date
 from app.domain.unit_economics import calculate_break_even_usage, money
 from app.utils.currency import format_mxn, format_percent
 
 
-def layout():
+def layout(display_currency: str | None = "MXN"):
+    currency = normalize_display_currency(display_currency)
     latest_month = SeedRepository().available_months()[-1]
     return html.Div(
         [
@@ -24,7 +34,7 @@ def layout():
                 ]
             ),
             dbc.Row([month_filter("executive-month-filter", latest_month)], className="mb-3"),
-            html.Div(id="executive-dashboard-content", children=_dashboard_content(latest_month)),
+            html.Div(id="executive-dashboard-content", children=_dashboard_content(latest_month, currency)),
         ]
     )
 
@@ -33,26 +43,37 @@ def register_callbacks(app) -> None:
     @app.callback(
         Output("executive-dashboard-content", "children"),
         Input("executive-month-filter", "value"),
+        Input("display-currency-store", "data"),
     )
-    def update_dashboard(month: str):
-        return _dashboard_content(month)
+    def update_dashboard(month: str, display_currency: str | None):
+        try:
+            return _dashboard_content(month, display_currency)
+        except FxRateUnavailableError as exc:
+            return dbc.Alert(str(exc), color="danger")
 
     @app.callback(
         Output("executive-monthly-revenue-dynamic", "children"),
         Input("executive-monthly-revenue", "n_clicks"),
         State("executive-month-filter", "value"),
+        State("display-currency-store", "data"),
     )
-    def toggle_revenue_card(n_clicks: int | None, month: str):
-        return _monthly_revenue_card_content(month, show_split=bool(n_clicks and n_clicks % 2))
+    def toggle_revenue_card(n_clicks: int | None, month: str, display_currency: str | None):
+        return _monthly_revenue_card_content(
+            month,
+            show_split=bool(n_clicks and n_clicks % 2),
+            display_currency=display_currency,
+        )
 
 
-def _dashboard_content(month: str):
+def _dashboard_content(month: str, display_currency: str | None = "MXN"):
+    currency = normalize_display_currency(display_currency)
     repo = SeedRepository()
-    summary = repo.monthly_summary(month)
-    revenue_by_service = repo.revenue_by_service(month)
-    cost_by_service = repo.cost_by_service(month)
-    cost_by_provider = repo.cost_by_provider(month)
-    cost_by_category = repo.cost_by_category(month)
+    presentation = repo.monthly_presentation(month, currency)
+    summary = presentation["summary"]
+    revenue_by_service = presentation["revenue_by_service"]
+    cost_by_service = presentation["cost_by_service"]
+    cost_by_provider = presentation["cost_by_provider"]
+    cost_by_category = presentation["cost_by_category"]
     variable_cost = summary["variable_cost"]
     revenue = summary["revenue"]
     operating_margin_pct = (summary["operating_margin"] / revenue) if revenue else Decimal("0")
@@ -61,22 +82,32 @@ def _dashboard_content(month: str):
         "saremi.document_validation",
         Decimal("0"),
     )
-    break_even_usage = calculate_break_even_usage(summary["fixed_cost"], unit_price, unit_variable_cost)
+    fixed_cost_mxn = sum(
+        (amount.amount for amount, _ in presentation["translated_costs"] if amount.cost_type == "fixed"),
+        Decimal("0"),
+    )
+    break_even_usage = calculate_break_even_usage(fixed_cost_mxn, unit_price, unit_variable_cost)
+    if currency == "USD":
+        recognition_date, _ = monthly_revenue_recognition_date(pd.Timestamp(f"{month}-01").date())
+        unit_rate = repo.usd_mxn_rates_for_dates([recognition_date])[recognition_date]
+        unit_price = translate_mxn(unit_price, currency, unit_rate)
+        unit_variable_cost = translate_mxn(unit_variable_cost, currency, unit_rate)
     client_rows = _client_rows(repo, month)
     lowest_margin_rows = sorted(client_rows, key=lambda row: row["operating_margin_percentage"])[:5]
 
     return html.Div(
         [
+            usd_view_note(currency),
             dbc.Row(
                 [
                     dbc.Col(
-                        _monthly_revenue_card(month),
+                        _monthly_revenue_card(month, currency),
                         md=3,
                     ),
                     dbc.Col(
                         kpi_card(
                             "Fixed Costs",
-                            format_mxn(summary["fixed_cost"]),
+                            format_currency(summary["fixed_cost"], currency),
                             color="secondary",
                             tooltip="Monthly active fixed costs, independent of usage volume.",
                             card_id="executive-fixed-costs",
@@ -86,7 +117,7 @@ def _dashboard_content(month: str):
                     dbc.Col(
                         kpi_card(
                             "Variable Costs",
-                            format_mxn(variable_cost),
+                            format_currency(variable_cost, currency),
                             color="warning",
                             tooltip="Usage-driven costs: sum of each usage event quantity multiplied by its unit cost.",
                             card_id="executive-variable-costs",
@@ -112,7 +143,7 @@ def _dashboard_content(month: str):
                     dbc.Col(
                         kpi_card(
                             "Burn Rate",
-                            format_mxn(summary["burn_rate"]),
+                            format_currency(summary["burn_rate"], currency),
                             color="danger",
                             tooltip="Cash consumed in the month when operating margin is negative; zero if profitable.",
                             card_id="executive-burn-rate",
@@ -123,7 +154,8 @@ def _dashboard_content(month: str):
                         kpi_card(
                             "Break-even Usage",
                             f"{break_even_usage:,} docs",
-                            f"At {format_mxn(unit_price)} price and {format_mxn(unit_variable_cost)} unit cost",
+                            f"At {format_currency(unit_price, currency)} price and "
+                            f"{format_currency(unit_variable_cost, currency)} unit cost",
                             tooltip="Documents needed to cover fixed costs: fixed costs divided by unit "
                             "contribution margin.",
                             card_id="executive-break-even-usage",
@@ -149,6 +181,7 @@ def _dashboard_content(month: str):
                             figure=_executive_pie_chart(
                                 revenue_by_service,
                                 "Revenue by Service Line",
+                                currency,
                             )
                         ),
                         md=4,
@@ -158,6 +191,7 @@ def _dashboard_content(month: str):
                             figure=_executive_bar_chart(
                                 cost_by_service,
                                 "Cost by Service Line",
+                                currency,
                             )
                         ),
                         md=4,
@@ -167,6 +201,7 @@ def _dashboard_content(month: str):
                             figure=_executive_bar_chart(
                                 _margin_by_service(revenue_by_service, cost_by_service),
                                 "Margin by Service Line",
+                                currency,
                             )
                         ),
                         md=4,
@@ -181,6 +216,7 @@ def _dashboard_content(month: str):
                             figure=_executive_bar_chart(
                                 cost_by_provider,
                                 "Costs by Provider",
+                                currency,
                             )
                         ),
                         md=6,
@@ -190,6 +226,7 @@ def _dashboard_content(month: str):
                             figure=_executive_bar_chart(
                                 cost_by_category,
                                 "Costs by Category",
+                                currency,
                             )
                         ),
                         md=6,
@@ -242,7 +279,7 @@ def _client_rows(repo: SeedRepository, month: str) -> list[dict]:
     return sorted(rows, key=lambda row: row["revenue_value"], reverse=True)
 
 
-def _monthly_revenue_card(month: str) -> html.Div:
+def _monthly_revenue_card(month: str, display_currency: str = "MXN") -> html.Div:
     tooltip = (
         "Total revenue recognized in the selected month. Click to split it into fixed subscription revenue "
         "and variable usage revenue."
@@ -253,7 +290,7 @@ def _monthly_revenue_card(month: str) -> html.Div:
                 dbc.CardBody(
                     [
                         html.Div(
-                            _monthly_revenue_card_content(month, show_split=False),
+                            _monthly_revenue_card_content(month, show_split=False, display_currency=display_currency),
                             id="executive-monthly-revenue-dynamic",
                         ),
                     ],
@@ -271,9 +308,18 @@ def _monthly_revenue_card(month: str) -> html.Div:
     )
 
 
-def _monthly_revenue_card_content(month: str, show_split: bool) -> list:
+def _monthly_revenue_card_content(
+    month: str,
+    show_split: bool,
+    display_currency: str | None = "MXN",
+) -> list:
+    currency = normalize_display_currency(display_currency)
     repo = SeedRepository()
-    split = repo.monthly_revenue_split(month)
+    presentation = repo.monthly_presentation(month, currency)
+    split = presentation["revenue_by_type"]
+    split["total"] = presentation["summary"]["revenue"]
+    split.setdefault("subscription", Decimal("0"))
+    split.setdefault("usage", Decimal("0"))
     if show_split:
         return [
             html.Div("Monthly Revenue Split", className="kpi-label"),
@@ -282,14 +328,14 @@ def _monthly_revenue_card_content(month: str, show_split: bool) -> list:
                     html.Div(
                         [
                             html.Span("Subscription (fixed)", className="text-muted"),
-                            html.Strong(format_mxn(split["subscription"])),
+                            html.Strong(format_currency(split["subscription"], currency)),
                         ],
                         className="revenue-split-row",
                     ),
                     html.Div(
                         [
                             html.Span("Usage (variable)", className="text-muted"),
-                            html.Strong(format_mxn(split["usage"])),
+                            html.Strong(format_currency(split["usage"], currency)),
                         ],
                         className="revenue-split-row",
                     ),
@@ -300,7 +346,7 @@ def _monthly_revenue_card_content(month: str, show_split: bool) -> list:
         ]
     return [
         html.Div("Monthly Revenue", className="kpi-label"),
-        html.Div(format_mxn(split["total"]), className="kpi-value"),
+        html.Div(format_currency(split["total"], currency), className="kpi-value"),
         html.Div("Click for fixed / variable split", className="kpi-subtitle"),
     ]
 
@@ -309,27 +355,29 @@ def _display_rows(rows: list[dict]) -> list[dict]:
     return [{key: value for key, value in row.items() if key != "revenue_value"} for row in rows]
 
 
-def _executive_bar_chart(data: dict[str, Decimal], title: str):
+def _executive_bar_chart(data: dict[str, Decimal], title: str, display_currency: str = "MXN"):
+    currency = normalize_display_currency(display_currency)
     figure = bar_chart(data, title, default_plotly_colors=True)
     figure.update_traces(
-        customdata=[_format_mxn_thousands(value) for value in data.values()],
+        customdata=[format_compact_currency(value, currency) for value in data.values()],
         hovertemplate="%{x}<br>%{customdata}<extra></extra>",
     )
-    figure.update_yaxes(tickformat=",.0f")
+    figure.update_yaxes(title=currency, tickformat=",.0f")
     return figure
 
 
-def _executive_pie_chart(data: dict[str, Decimal], title: str):
+def _executive_pie_chart(data: dict[str, Decimal], title: str, display_currency: str = "MXN"):
+    currency = normalize_display_currency(display_currency)
     figure = pie_chart(data, title, default_plotly_colors=True)
     figure.update_traces(
-        customdata=[_format_mxn_thousands(value) for value in data.values()],
+        customdata=[format_compact_currency(value, currency) for value in data.values()],
         hovertemplate="%{label}<br>%{customdata}<extra></extra>",
     )
     return figure
 
 
 def _format_mxn_thousands(value: Decimal) -> str:
-    return f"{value / Decimal('1000'):,.1f}k MXN"
+    return format_compact_currency(value, "MXN").removeprefix("$")
 
 
 def _average_document_price(repo: SeedRepository, month: str) -> Decimal:

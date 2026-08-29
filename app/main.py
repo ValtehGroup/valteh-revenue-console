@@ -7,6 +7,7 @@ import dash_bootstrap_components as dbc
 from app.config import get_settings
 from app.data.seed_data import seed_database
 from app.layout import app_layout
+from app.presentation_currency import register_display_currency_callbacks
 from app.routes import register_routes
 from app.theme import THEME_INDEX_STRING, register_theme_callbacks
 
@@ -26,6 +27,7 @@ def create_app() -> dash.Dash:
     app.layout = app_layout()
     register_routes(app)
     register_theme_callbacks(app)
+    register_display_currency_callbacks(app)
     return app
 
 

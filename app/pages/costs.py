@@ -18,12 +18,15 @@ from app.data.cost_repository import (
     MetadataCommand,
 )
 from app.data.repositories import SeedRepository
+from app.domain.display_currency import format_currency, normalize_display_currency, usd_view_note
+from app.domain.fx_rates import FxRateUnavailableError
 from app.utils.currency import format_mxn
 
 RECORD_TYPE_OPTIONS = ("actual", "estimate")
 
 
-def layout():
+def layout(display_currency: str | None = "MXN"):
+    currency = normalize_display_currency(display_currency)
     repo = SeedRepository()
     available_months = repo.available_months()
     selected_month = _default_month(available_months)
@@ -77,7 +80,7 @@ def layout():
                 "Monthly and annual operating cost overview.",
                 className="text-muted",
             ),
-            html.Div(id="costs-dashboard-content", children=_dashboard_content(selected_month)),
+            html.Div(id="costs-dashboard-content", children=_dashboard_content(selected_month, currency)),
             html.Details(
                 [
                     html.Summary("Costs Table", className="h5"),
@@ -176,12 +179,17 @@ def register_callbacks(app) -> None:
         Output("costs-dashboard-content", "children"),
         Input("costs-month-filter", "value"),
         Input("costs-refresh", "data"),
+        Input("display-currency-store", "data"),
     )
-    def update_dashboard(selected_month: str | None, _refresh: int):
+    def update_dashboard(selected_month: str | None, _refresh: int, display_currency: str | None):
         available_months = SeedRepository().available_months()
-        return _dashboard_content(
-            selected_month if selected_month in available_months else _default_month(available_months)
-        )
+        try:
+            return _dashboard_content(
+                selected_month if selected_month in available_months else _default_month(available_months),
+                display_currency,
+            )
+        except FxRateUnavailableError as exc:
+            return dbc.Alert(str(exc), color="danger")
 
     @app.callback(
         Output("costs-table", "data"),
@@ -356,36 +364,44 @@ def register_callbacks(app) -> None:
         Output("costs-selected-month-dynamic", "children"),
         Input("costs-selected-month", "n_clicks"),
         State("costs-month-filter", "value"),
+        State("display-currency-store", "data"),
     )
-    def toggle_selected_month_split(n_clicks: int | None, selected_month: str):
+    def toggle_selected_month_split(n_clicks: int | None, selected_month: str, display_currency: str | None):
+        currency = normalize_display_currency(display_currency)
         repo = SeedRepository()
-        rows = _year_cost_rows(repo, int(selected_month[:4]))
+        rows = _year_cost_rows(repo, int(selected_month[:4]), currency)
         split = _summarize_cost_rows([row for row in rows if row["month"] == selected_month])
-        return _cost_summary_content(_month_card_title(selected_month), split, _show_split(n_clicks))
+        return _cost_summary_content(_month_card_title(selected_month), split, _show_split(n_clicks), currency)
 
     @app.callback(
         Output("costs-selected-year-dynamic", "children"),
         Input("costs-selected-year", "n_clicks"),
         State("costs-month-filter", "value"),
+        State("display-currency-store", "data"),
     )
-    def toggle_selected_year_split(n_clicks: int | None, selected_month: str):
+    def toggle_selected_year_split(n_clicks: int | None, selected_month: str, display_currency: str | None):
+        currency = normalize_display_currency(display_currency)
         selected_year = int(selected_month[:4])
-        split = _summarize_cost_rows(_year_cost_rows(SeedRepository(), selected_year))
+        split = _summarize_cost_rows(_year_cost_rows(SeedRepository(), selected_year, currency))
         return _cost_summary_content(
             f"Total Cost - {selected_year}",
             split,
             _show_split(n_clicks),
+            currency,
         )
 
 
-def _dashboard_content(selected_month: str) -> html.Div:
+def _dashboard_content(selected_month: str, display_currency: str | None = "MXN") -> html.Div:
+    currency = normalize_display_currency(display_currency)
     repo = SeedRepository()
     selected_year = int(selected_month[:4])
-    year_rows = _year_cost_rows(repo, selected_year)
+    year_rows = _year_cost_rows(repo, selected_year, currency)
+    presentation = repo.monthly_presentation(selected_month, currency)
     month_split = _summarize_cost_rows([row for row in year_rows if row["month"] == selected_month])
     year_split = _summarize_cost_rows(year_rows)
     return html.Div(
         [
+            usd_view_note(currency),
             dbc.Row(
                 [
                     dbc.Col(
@@ -393,6 +409,7 @@ def _dashboard_content(selected_month: str) -> html.Div:
                             _month_card_title(selected_month),
                             month_split,
                             "costs-selected-month",
+                            currency,
                         ),
                         md=6,
                     ),
@@ -401,6 +418,7 @@ def _dashboard_content(selected_month: str) -> html.Div:
                             f"Total Cost - {selected_year}",
                             year_split,
                             "costs-selected-year",
+                            currency,
                         ),
                         md=6,
                     ),
@@ -410,7 +428,7 @@ def _dashboard_content(selected_month: str) -> html.Div:
             dbc.Card(
                 dbc.CardBody(
                     dcc.Graph(
-                        figure=_year_cost_chart(year_rows, selected_year),
+                        figure=_year_cost_chart(year_rows, selected_year, currency),
                         config={"displayModeBar": False},
                     )
                 ),
@@ -420,15 +438,17 @@ def _dashboard_content(selected_month: str) -> html.Div:
             dbc.Row(
                 [
                     dbc.Col(
-                        dcc.Graph(figure=bar_chart(repo.cost_by_service(selected_month), "Costs by Service Line")),
+                        dcc.Graph(
+                            figure=_money_bar(presentation["cost_by_service"], "Costs by Service Line", currency)
+                        ),
                         md=4,
                     ),
                     dbc.Col(
-                        dcc.Graph(figure=bar_chart(repo.cost_by_provider(selected_month), "Costs by Provider")),
+                        dcc.Graph(figure=_money_bar(presentation["cost_by_provider"], "Costs by Provider", currency)),
                         md=4,
                     ),
                     dbc.Col(
-                        dcc.Graph(figure=bar_chart(repo.cost_by_category(selected_month), "Costs by Category")),
+                        dcc.Graph(figure=_money_bar(presentation["cost_by_category"], "Costs by Category", currency)),
                         md=4,
                     ),
                 ],
@@ -449,9 +469,9 @@ def _dashboard_content(selected_month: str) -> html.Div:
     )
 
 
-def _year_cost_rows(repo: SeedRepository, year: int) -> list[dict]:
+def _year_cost_rows(repo: SeedRepository, year: int, display_currency: str = "MXN") -> list[dict]:
     year_prefix = f"{year}-"
-    return [row for row in repo.cost_history() if row["month"].startswith(year_prefix)]
+    return [row for row in repo.cost_history(display_currency) if row["month"].startswith(year_prefix)]
 
 
 def _default_month(available_months: list[str]) -> str:
@@ -800,12 +820,17 @@ def _summarize_cost_rows(rows: list[dict]) -> dict[str, Decimal]:
     return {"fixed": fixed, "variable": variable, "total": fixed + variable}
 
 
-def _cost_summary_card(title: str, split: dict[str, Decimal], card_id: str) -> html.Div:
+def _cost_summary_card(
+    title: str,
+    split: dict[str, Decimal],
+    card_id: str,
+    display_currency: str = "MXN",
+) -> html.Div:
     return html.Div(
         dbc.Card(
             dbc.CardBody(
                 html.Div(
-                    _cost_summary_content(title, split, show_split=False),
+                    _cost_summary_content(title, split, show_split=False, display_currency=display_currency),
                     id=f"{card_id}-dynamic",
                 )
             ),
@@ -820,10 +845,16 @@ def _cost_summary_card(title: str, split: dict[str, Decimal], card_id: str) -> h
     )
 
 
-def _cost_summary_content(title: str, split: dict[str, Decimal], show_split: bool) -> list:
+def _cost_summary_content(
+    title: str,
+    split: dict[str, Decimal],
+    show_split: bool,
+    display_currency: str = "MXN",
+) -> list:
+    currency = normalize_display_currency(display_currency)
     content = [
         html.Div(title, className="kpi-label"),
-        html.Div(format_mxn(split["total"]), className="kpi-value"),
+        html.Div(format_currency(split["total"], currency), className="kpi-value"),
     ]
     if show_split:
         content.extend(
@@ -831,14 +862,14 @@ def _cost_summary_content(title: str, split: dict[str, Decimal], show_split: boo
                 html.Div(
                     [
                         html.Span("Fixed + one-time", className="text-muted"),
-                        html.Strong(format_mxn(split["fixed"])),
+                        html.Strong(format_currency(split["fixed"], currency)),
                     ],
                     className="cost-split-row",
                 ),
                 html.Div(
                     [
                         html.Span("Variable", className="text-muted"),
-                        html.Strong(format_mxn(split["variable"])),
+                        html.Strong(format_currency(split["variable"], currency)),
                     ],
                     className="cost-split-row",
                 ),
@@ -854,7 +885,8 @@ def _show_split(n_clicks: int | None) -> bool:
     return bool(n_clicks and n_clicks % 2)
 
 
-def _year_cost_chart(rows: list[dict], year: int):
+def _year_cost_chart(rows: list[dict], year: int, display_currency: str = "MXN"):
+    currency = normalize_display_currency(display_currency)
     chart_rows = [
         {
             "month": row["month"],
@@ -876,7 +908,7 @@ def _year_cost_chart(rows: list[dict], year: int):
         color="cost_type",
         barmode="stack",
         title=f"Monthly Costs in {year}",
-        labels={"amount": "MXN", "month": "", "cost_type": "Cost type"},
+        labels={"amount": currency, "month": "", "cost_type": "Cost type"},
         color_discrete_sequence=DEFAULT_PLOTLY_COLORWAY,
     )
     figure.update_layout(
@@ -884,7 +916,15 @@ def _year_cost_chart(rows: list[dict], year: int):
         margin=dict(l=20, r=20, t=50, b=20),
         hovermode="closest",
     )
-    figure.update_traces(hovertemplate="<b>%{fullData.name}</b><br>%{x}<br>$%{y:,.2f} MXN<extra></extra>")
+    figure.update_traces(hovertemplate=f"<b>%{{fullData.name}}</b><br>%{{x}}<br>$%{{y:,.2f}} {currency}<extra></extra>")
     figure.update_xaxes(type="category", tickformat="%Y-%m")
     figure.update_yaxes(tickprefix="$", separatethousands=True)
     return apply_chart_theme(figure, colorway=DEFAULT_PLOTLY_COLORWAY)
+
+
+def _money_bar(data: dict[str, Decimal], title: str, display_currency: str):
+    currency = normalize_display_currency(display_currency)
+    figure = bar_chart(data, title)
+    figure.update_yaxes(title=currency)
+    figure.update_traces(hovertemplate=f"%{{x}}<br>$%{{y:,.2f}} {currency}<extra></extra>")
+    return figure

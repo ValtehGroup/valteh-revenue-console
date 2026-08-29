@@ -13,6 +13,7 @@ from app.components.tables import data_table
 from app.config import get_settings
 from app.data.fx_rate_repository import FxRateRepository
 from app.data.repositories import SeedRepository
+from app.domain.display_currency import format_currency, normalize_display_currency, translate_mxn, usd_view_note
 from app.domain.fx_history_sync import FxHistorySyncService
 from app.domain.fx_rates import FxRateObservation
 from app.domain.scenario_forecast import (
@@ -26,12 +27,14 @@ from app.integrations.banxico_sie_api import BanxicoSIEAPIError, BanxicoSIEClien
 from app.utils.currency import format_mxn, format_percent
 
 
-def layout():
+def layout(display_currency: str | None = "MXN"):
+    currency = normalize_display_currency(display_currency)
     reference_rate = _latest_reference_rate()
     assumption_summary, scenario_results = _scenario_outputs(
         reference_rate,
         DEFAULT_DOWNSIDE_USD_MXN_CHANGE * Decimal("100"),
         DEFAULT_UPSIDE_USD_MXN_CHANGE * Decimal("100"),
+        currency,
     )
     return html.Div(
         [
@@ -51,6 +54,7 @@ def layout():
                 className="g-3 mb-4 align-items-stretch",
             ),
             _fx_history_panel(),
+            usd_view_note(currency, scenario=True),
             html.Div(id="scenario-results", children=scenario_results),
         ]
     )
@@ -63,11 +67,13 @@ def register_callbacks(app) -> None:
         Input("scenario-reference-usd-mxn-rate", "value"),
         Input("scenario-downside-usd-mxn-change", "value"),
         Input("scenario-upside-usd-mxn-change", "value"),
+        Input("display-currency-store", "data"),
     )
     def update_scenarios(
         reference_usd_mxn_rate: float | str | None,
         downside_usd_mxn_change: float | str | None,
         upside_usd_mxn_change: float | str | None,
+        display_currency: str | None,
     ):
         if None in (reference_usd_mxn_rate, downside_usd_mxn_change, upside_usd_mxn_change):
             return no_update, no_update
@@ -76,6 +82,7 @@ def register_callbacks(app) -> None:
                 reference_usd_mxn_rate,
                 downside_usd_mxn_change,
                 upside_usd_mxn_change,
+                display_currency,
             )
         except ValueError as exc:
             return dbc.Alert(str(exc), color="danger", className="h-100 mb-0"), no_update
@@ -287,6 +294,7 @@ def _scenario_outputs(
     reference_usd_mxn_rate: Decimal | float | int | str | None,
     downside_usd_mxn_change: Decimal | float | int | str | None,
     upside_usd_mxn_change: Decimal | float | int | str | None,
+    display_currency: str | None = "MXN",
 ):
     reference_rate = _positive_decimal(reference_usd_mxn_rate, "Baseline USD:MXN")
     downside_change = _percentage_change(downside_usd_mxn_change, "Downside change")
@@ -303,7 +311,7 @@ def _scenario_outputs(
             "Optimistic": upside_change,
         },
     )
-    return _assumption_summary(latest_month, forecast), _scenario_results(forecast)
+    return _assumption_summary(latest_month, forecast), _scenario_results(forecast, display_currency)
 
 
 def _positive_decimal(value: Decimal | float | int | str | None, label: str) -> Decimal:
@@ -330,20 +338,24 @@ def _decimal(value: Decimal | float | int | str | None, label: str) -> Decimal:
     return number
 
 
-def _scenario_results(forecast: list[ScenarioMonth]) -> html.Div:
+def _scenario_results(forecast: list[ScenarioMonth], display_currency: str | None = "MXN") -> html.Div:
+    currency = normalize_display_currency(display_currency)
     return html.Div(
         [
-            _scenario_kpis(forecast),
+            _scenario_kpis(forecast, currency),
             dbc.Row(
                 [
-                    dbc.Col(dcc.Graph(figure=_line_chart(forecast, "revenue", "Revenue Forecast")), md=6),
-                    dbc.Col(dcc.Graph(figure=_line_chart(forecast, "total_cost", "Cost Forecast")), md=6),
+                    dbc.Col(dcc.Graph(figure=_line_chart(forecast, "revenue", "Revenue Forecast", currency)), md=6),
+                    dbc.Col(dcc.Graph(figure=_line_chart(forecast, "total_cost", "Cost Forecast", currency)), md=6),
                 ],
                 className="mb-4",
             ),
             dbc.Row(
                 [
-                    dbc.Col(dcc.Graph(figure=_line_chart(forecast, "operating_margin", "Operating Margin")), md=6),
+                    dbc.Col(
+                        dcc.Graph(figure=_line_chart(forecast, "operating_margin", "Operating Margin", currency)),
+                        md=6,
+                    ),
                     dbc.Col(dcc.Graph(figure=_line_chart(forecast, "clients", "Active Clients")), md=6),
                 ],
                 className="mb-4",
@@ -379,7 +391,8 @@ def _assumption_summary(latest_month: str, forecast: list[ScenarioMonth]) -> dbc
     )
 
 
-def _scenario_kpis(forecast: list[ScenarioMonth]) -> dbc.Row:
+def _scenario_kpis(forecast: list[ScenarioMonth], display_currency: str = "MXN") -> dbc.Row:
+    currency = normalize_display_currency(display_currency)
     final_month = forecast[-1].month
     final_rows = [month for month in forecast if month.month == final_month]
     return dbc.Row(
@@ -392,14 +405,27 @@ def _scenario_kpis(forecast: list[ScenarioMonth]) -> dbc.Row:
                             html.Div(
                                 [
                                     html.Span("Revenue"),
-                                    html.Strong(format_mxn(row.revenue)),
+                                    html.Strong(
+                                        format_currency(
+                                            translate_mxn(row.revenue, currency, row.usd_mxn_rate), currency
+                                        )
+                                    ),
                                 ],
                                 className="revenue-split-row",
                             ),
                             html.Div(
                                 [
                                     html.Span("Total costs"),
-                                    html.Strong(format_mxn(row.fixed_cost + row.variable_cost)),
+                                    html.Strong(
+                                        format_currency(
+                                            translate_mxn(
+                                                row.fixed_cost + row.variable_cost,
+                                                currency,
+                                                row.usd_mxn_rate,
+                                            ),
+                                            currency,
+                                        )
+                                    ),
                                 ],
                                 className="revenue-split-row",
                             ),
@@ -416,29 +442,34 @@ def _scenario_kpis(forecast: list[ScenarioMonth]) -> dbc.Row:
     )
 
 
-def _line_chart(forecast: list[ScenarioMonth], metric: str, title: str):
-    df = _forecast_frame(forecast)
+def _line_chart(forecast: list[ScenarioMonth], metric: str, title: str, display_currency: str = "MXN"):
+    currency = normalize_display_currency(display_currency)
+    df = _forecast_frame(forecast, currency)
     fig = px.line(df, x="month", y=metric, color="scenario", markers=True, title=title)
     fig.update_layout(margin=dict(l=20, r=20, t=50, b=20), xaxis_title="", legend_title="")
     if metric != "clients":
-        fig.update_yaxes(title="MXN", tickprefix="$", separatethousands=True)
+        fig.update_yaxes(title=currency, tickprefix="$", separatethousands=True)
+        fig.update_traces(hovertemplate=f"%{{x}}<br>$%{{y:,.2f}} {currency}<extra></extra>")
     else:
         fig.update_yaxes(title="Clients")
     return apply_chart_theme(fig)
 
 
-def _forecast_frame(forecast: list[ScenarioMonth]) -> pd.DataFrame:
+def _forecast_frame(forecast: list[ScenarioMonth], display_currency: str = "MXN") -> pd.DataFrame:
+    currency = normalize_display_currency(display_currency)
     return pd.DataFrame(
         [
             {
                 "scenario": month.scenario,
                 "month": month.month,
                 "clients": month.clients,
-                "revenue": float(month.revenue),
-                "fixed_cost": float(month.fixed_cost),
-                "variable_cost": float(month.variable_cost),
-                "total_cost": float(month.fixed_cost + month.variable_cost),
-                "operating_margin": float(month.operating_margin),
+                "revenue": float(translate_mxn(month.revenue, currency, month.usd_mxn_rate)),
+                "fixed_cost": float(translate_mxn(month.fixed_cost, currency, month.usd_mxn_rate)),
+                "variable_cost": float(translate_mxn(month.variable_cost, currency, month.usd_mxn_rate)),
+                "total_cost": float(
+                    translate_mxn(month.fixed_cost + month.variable_cost, currency, month.usd_mxn_rate)
+                ),
+                "operating_margin": float(translate_mxn(month.operating_margin, currency, month.usd_mxn_rate)),
             }
             for month in forecast
         ]

@@ -17,12 +17,35 @@ or that a customer deposited funds.
 
 ## General interaction
 
-- Use the left sidebar to change pages and switch between light and dark mode.
+- Use the left sidebar to change pages, switch between light and dark mode, and choose `Display: MXN | USD`.
 - Click a table row before using actions such as Edit, Change, End, or Deactivate.
 - Dates use `YYYY-MM-DD`; Anthropic reports use UTC dates.
 - Dropdown and chart selections are retained during the browser session where supported.
 - If a save says another user changed the record, refresh and review the latest values before retrying.
 - Preserve history with effective dates. Use deletion only for a specifically verified accidental record.
+
+### Presentation currency
+
+MXN remains the dashboard's economic and stored base currency. The global **Display: MXN | USD** selector changes only
+the presentation of analytical cards and charts and remains selected while you navigate during the browser session.
+It does not rewrite costs, revenue, plans, subscriptions, usage, or any other record.
+
+In USD view, revenue and costs are translated occurrence by occurrence using the persisted Banxico FIX applicable to
+their recognition date. Setup revenue uses the subscription start date, annual revenue its anniversary, monthly
+subscription revenue the closed month's final calendar day, and usage revenue the usage-event date. Current-month
+recurring amounts use today's Mexico City date provisionally. The latest prior FIX may be used only when it is no more
+than seven calendar days old; the dashboard never silently falls back to 18 or contacts Banxico while rendering.
+
+Revenue and costs are translated separately before gross and operating margin are recalculated. Consequently, the USD
+margin percentage can differ from MXN when the underlying revenue and cost dates use different FIX observations.
+
+The selector applies to analytical cards and charts in **Executive Summary**, **Costs**, **Scenarios**, **Client
+Detail**, and the **Pricing Simulator**. Management tables, realized-cost rows, scenario month-by-month results,
+pricing-plan catalogs, activity tables, forms, inputs, quantities, client counts, and contractual currencies remain in
+their original presentation. A compact `USD view · historical FIX by recognition date` note identifies converted
+surfaces; Scenarios instead identifies that its own forecast assumptions apply. If required history is missing, the
+affected surface reports the date instead of showing a partial or
+mislabelled result; switch back to MXN or update the persisted history from Scenarios.
 
 ## Executive Summary
 
@@ -165,6 +188,10 @@ to the latest persisted Banxico FIX (or 18 only when no history exists); Pessimi
 -10%. Refreshing the page reloads that latest persisted baseline. Valid changes update the KPI cards, charts, and
 monthly table automatically. USD-entered fixed and variable costs are revalued from their original USD amounts, while
 costs entered in MXN are not affected by the exchange-rate assumption.
+
+The global display selector does not change these forecast assumptions. In USD view, each projected monetary value is
+divided by that scenario row's own USD/MXN assumption; historical FIX observations are not applied to the forecast
+horizon. The month-by-month table remains unchanged.
 
 The **USD/MXN FIX history** card reads persisted Banco de México series `SF43718` observations and shows the latest 12
 months. Select **Update FX history** to contact Banxico explicitly. The first successful update imports observations

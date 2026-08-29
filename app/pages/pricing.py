@@ -12,11 +12,20 @@ from app.components.forms import field_label, numeric_input
 from app.components.kpi_card import kpi_card
 from app.components.tables import data_table
 from app.data.repositories import SeedRepository
+from app.domain.cost_engine import mexico_today
+from app.domain.display_currency import (
+    format_currency,
+    normalize_display_currency,
+    translate_mxn,
+    usd_view_note,
+)
+from app.domain.fx_rates import FxRateUnavailableError
 from app.domain.pricing_simulator import PricingSimulationInput, sensitivity_series, simulate_pricing
 from app.utils.currency import format_mxn, format_percent
 
 
-def layout():
+def layout(display_currency: str | None = "MXN"):
+    currency = normalize_display_currency(display_currency)
     repo = SeedRepository()
     latest_month = repo.available_months()[-1]
     defaults = _default_inputs(repo, latest_month)
@@ -47,7 +56,10 @@ def layout():
                         className="text-muted",
                     ),
                     _simulator_controls(repo, defaults),
-                    html.Div(id="pricing-simulation-results", children=_simulation_content(defaults)),
+                    html.Div(
+                        id="pricing-simulation-results",
+                        children=_simulation_content(defaults, currency),
+                    ),
                 ],
                 id="pricing-simulator-section",
             ),
@@ -69,6 +81,7 @@ def register_callbacks(app) -> None:
         Input("pricing-price-multiplier", "value"),
         Input("pricing-cost-multiplier", "value"),
         Input("pricing-target-margin", "value"),
+        Input("display-currency-store", "data"),
     )
     def update_simulation(
         plan_id,
@@ -82,6 +95,7 @@ def register_callbacks(app) -> None:
         price_multiplier,
         cost_multiplier,
         target_margin,
+        display_currency,
     ):
         values = {
             "plan_id": plan_id,
@@ -96,7 +110,10 @@ def register_callbacks(app) -> None:
             "cost_multiplier": cost_multiplier,
             "target_margin": target_margin,
         }
-        return _simulation_content(values)
+        try:
+            return _simulation_content(values, display_currency)
+        except FxRateUnavailableError as exc:
+            return dbc.Alert(str(exc), color="danger")
 
 
 def _simulator_controls(repo: SeedRepository, defaults: dict):
@@ -218,7 +235,8 @@ def _simulator_controls(repo: SeedRepository, defaults: dict):
     )
 
 
-def _simulation_content(values: dict):
+def _simulation_content(values: dict, display_currency: str | None = "MXN"):
+    currency = normalize_display_currency(display_currency)
     simulation_input = _simulation_input(values)
     result = simulate_pricing(simulation_input)
     sensitivity = sensitivity_series(
@@ -226,14 +244,23 @@ def _simulation_content(values: dict):
         usage_multipliers=[Decimal("0.50"), Decimal("1.00"), Decimal("1.50"), Decimal("2.00")],
         price_multipliers=[Decimal("0.80"), Decimal("1.00"), Decimal("1.20")],
     )
+    rate = None
+    if currency == "USD":
+        recognition_date = mexico_today()
+        rate = SeedRepository().usd_mxn_rates_for_dates([recognition_date])[recognition_date]
+
+    def presented(value):
+        return translate_mxn(value, currency, rate)
+
     return html.Div(
         [
+            usd_view_note(currency),
             dbc.Row(
                 [
                     dbc.Col(
                         kpi_card(
                             "Client Revenue",
-                            format_mxn(result.revenue),
+                            format_currency(presented(result.revenue), currency),
                             "Plan pricing auto-filled from selected plan",
                             tooltip="Total revenue expected from one client: setup fee, monthly fixed fee, and any "
                             "usage billed above the plan's included limits.",
@@ -243,8 +270,8 @@ def _simulation_content(values: dict):
                     dbc.Col(
                         kpi_card(
                             "Client Costs",
-                            format_mxn(result.total_cost),
-                            f"{format_mxn(result.variable_cost)} variable",
+                            format_currency(presented(result.total_cost), currency),
+                            f"{format_currency(presented(result.variable_cost), currency)} variable",
                             color="warning",
                             tooltip="Total cost assigned to this client: allocated fixed costs plus usage-based "
                             "variable costs.",
@@ -254,7 +281,7 @@ def _simulation_content(values: dict):
                     dbc.Col(
                         kpi_card(
                             "Operating Margin",
-                            format_mxn(result.operating_margin),
+                            format_currency(presented(result.operating_margin), currency),
                             format_percent(result.operating_margin_percentage),
                             color="success" if result.operating_margin >= 0 else "danger",
                             tooltip="Profit or loss from this client after both variable costs and allocated fixed "
@@ -265,7 +292,7 @@ def _simulation_content(values: dict):
                     dbc.Col(
                         kpi_card(
                             "Minimum Doc Price",
-                            _format_mxn_2(result.minimum_document_price),
+                            format_currency(presented(result.minimum_document_price), currency, decimals=2),
                             "For target unit margin",
                             tooltip="Minimum price per document needed to reach the selected target unit margin, "
                             "based on current document cost.",
@@ -277,7 +304,7 @@ def _simulation_content(values: dict):
             ),
             dbc.Row(
                 [
-                    dbc.Col(dcc.Graph(figure=_sensitivity_chart(sensitivity)), md=7),
+                    dbc.Col(dcc.Graph(figure=_sensitivity_chart(sensitivity, currency, rate)), md=7),
                     dbc.Col(
                         dbc.Card(
                             dbc.CardBody(
@@ -344,13 +371,14 @@ def _default_inputs(repo: SeedRepository, month: str) -> dict:
     }
 
 
-def _sensitivity_chart(rows: list[dict]):
+def _sensitivity_chart(rows: list[dict], display_currency: str = "MXN", rate=None):
+    currency = normalize_display_currency(display_currency)
     df = pd.DataFrame(
         [
             {
                 "price_case": row["price_case"],
                 "usage_multiplier": row["usage_multiplier"],
-                "operating_margin": float(row["operating_margin"]),
+                "operating_margin": float(translate_mxn(row["operating_margin"], currency, rate)),
             }
             for row in rows
         ]
@@ -364,7 +392,8 @@ def _sensitivity_chart(rows: list[dict]):
         title="Operating Margin Sensitivity",
     )
     fig.update_layout(margin=dict(l=20, r=20, t=50, b=20), xaxis_title="Usage multiplier", legend_title="")
-    fig.update_yaxes(title="MXN", tickprefix="$", separatethousands=True)
+    fig.update_yaxes(title=currency, tickprefix="$", separatethousands=True)
+    fig.update_traces(hovertemplate=f"%{{x}}<br>$%{{y:,.2f}} {currency}<extra></extra>")
     return apply_chart_theme(fig)
 
 
