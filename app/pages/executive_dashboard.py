@@ -86,12 +86,25 @@ def _dashboard_content(month: str, display_currency: str | None = "MXN"):
         (amount.amount for amount, _ in presentation["translated_costs"] if amount.cost_type == "fixed"),
         Decimal("0"),
     )
-    break_even_usage = calculate_break_even_usage(fixed_cost_mxn, unit_price, unit_variable_cost)
-    if currency == "USD":
-        recognition_date, _ = monthly_revenue_recognition_date(pd.Timestamp(f"{month}-01").date())
-        unit_rate = repo.usd_mxn_rates_for_dates([recognition_date])[recognition_date]
-        unit_price = translate_mxn(unit_price, currency, unit_rate)
-        unit_variable_cost = translate_mxn(unit_variable_cost, currency, unit_rate)
+    if unit_price <= 0:
+        break_even_usage = None
+        break_even_note = "No active plan charges per document"
+    elif unit_price <= unit_variable_cost:
+        break_even_usage = None
+        break_even_note = "Unit price does not cover variable cost"
+    else:
+        break_even_usage = calculate_break_even_usage(fixed_cost_mxn, unit_price, unit_variable_cost)
+        display_unit_price = unit_price
+        display_unit_variable_cost = unit_variable_cost
+        if currency == "USD":
+            recognition_date, _ = monthly_revenue_recognition_date(pd.Timestamp(f"{month}-01").date())
+            unit_rate = repo.usd_mxn_rates_for_dates([recognition_date])[recognition_date]
+            display_unit_price = translate_mxn(unit_price, currency, unit_rate)
+            display_unit_variable_cost = translate_mxn(unit_variable_cost, currency, unit_rate)
+        break_even_note = (
+            f"At {format_currency(display_unit_price, currency)} price and "
+            f"{format_currency(display_unit_variable_cost, currency)} unit cost"
+        )
     client_rows = _client_rows(repo, month)
     lowest_margin_rows = sorted(client_rows, key=lambda row: row["operating_margin_percentage"])[:5]
 
@@ -153,9 +166,8 @@ def _dashboard_content(month: str, display_currency: str | None = "MXN"):
                     dbc.Col(
                         kpi_card(
                             "Break-even Usage",
-                            f"{break_even_usage:,} docs",
-                            f"At {format_currency(unit_price, currency)} price and "
-                            f"{format_currency(unit_variable_cost, currency)} unit cost",
+                            f"{break_even_usage:,} docs" if break_even_usage is not None else "n/a",
+                            break_even_note,
                             tooltip="Documents needed to cover fixed costs: fixed costs divided by unit "
                             "contribution margin.",
                             card_id="executive-break-even-usage",
