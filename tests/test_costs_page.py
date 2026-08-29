@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import date
 from decimal import Decimal
 
@@ -6,8 +7,8 @@ from dash import dcc
 from app.components.chart_theme import DEFAULT_PLOTLY_COLORWAY
 from app.components.tables import data_table
 from app.data.repositories import SeedRepository
-from app.domain.cost_engine import CostAmount, ValuedUnitCost
-from app.domain.models import CostItem
+from app.domain.cost_engine import CostAmount
+from app.domain.fx_rates import ResolvedFxRate
 from app.main import create_app
 from app.pages.costs import (
     _action_form,
@@ -61,7 +62,7 @@ def test_cost_summary_reconciles_fixed_variable_and_one_time_costs() -> None:
     }
 
 
-def test_monthly_cost_table_exposes_dated_fx_audit_fields() -> None:
+def test_monthly_cost_table_exposes_one_fx_reference_for_usd_and_mxn_costs() -> None:
     amount = CostAmount(
         cost_key="software.usd",
         name="USD subscription",
@@ -86,18 +87,33 @@ def test_monthly_cost_table_exposes_dated_fx_audit_fields() -> None:
         fx_rate_date=date(2026, 8, 28),
         provisional_fx=True,
     )
+    mxn_amount = replace(
+        amount,
+        cost_key="software.mxn",
+        name="MXN subscription",
+        unit_cost=Decimal("100"),
+        currency="MXN",
+        amount=Decimal("100"),
+        source_unit_cost=Decimal("100"),
+        source_currency="MXN",
+        fx_rate=None,
+        fx_rate_date=None,
+        provisional_fx=False,
+    )
 
     class Repository:
         @staticmethod
         def monthly_cost_amounts(_month: str):
-            return [amount]
+            return [amount, mxn_amount]
 
-    row = _monthly_cost_rows(Repository(), "2026-08")[0]
+        @staticmethod
+        def usd_mxn_rates_for_dates(_dates):
+            return {date(2026, 8, 29): ResolvedFxRate("USD", date(2026, 8, 29), Decimal("17.0427"), date(2026, 8, 28))}
 
-    assert row["fx_rate"] == "17.0427"
-    assert row["fx_date"] == "2026-08-28"
-    assert row["valuation_date"] == "2026-08-29"
-    assert row["fx_status"] == "Provisional"
+    rows = _monthly_cost_rows(Repository(), "2026-08")
+
+    assert [row["usd_mxn_used"] for row in rows] == ["17.0427", "17.0427"]
+    assert all({"fx_rate", "fx_date", "valuation_date", "fx_status"}.isdisjoint(row) for row in rows)
 
 
 def test_year_chart_stacks_fixed_and_variable_monthly_costs() -> None:
@@ -156,10 +172,6 @@ def test_management_table_includes_ids_status_and_audit_timestamps() -> None:
     assert {
         "id",
         "status",
-        "fx_rate",
-        "fx_date",
-        "valuation_date",
-        "fx_status",
         "base_amount",
         "created_at",
         "updated_at",
@@ -170,54 +182,13 @@ def test_management_table_includes_ids_status_and_audit_timestamps() -> None:
     assert len(rows[0]["id"]) >= 4
     assert rows[0]["quantity"].replace(",", "").isdigit()
     assert len(rows[0]["unit_cost"].split(".")[-1]) == 2
+    rows_by_id = {row["id"]: row for row in rows}
+    for item in repo.cost_items():
+        assert rows_by_id[f"{item.id:04d}"]["base_amount"] == (
+            f"${item.entered_configured_amount:,.2f} {item.display_currency}"
+        )
+    assert {"usd_mxn_used", "fx_rate", "fx_date", "valuation_date", "fx_status"}.isdisjoint(rows[0])
     assert all(row["status"] == row["status"].lower() for row in rows)
-
-
-def test_management_table_uses_and_exposes_catalog_fx_valuation() -> None:
-    item = CostItem(
-        id=1,
-        cost_key="software.usd",
-        name="USD subscription",
-        category="Software",
-        cost_type="fixed",
-        charge_basis="flat",
-        quantity=Decimal("2"),
-        unit_cost=Decimal("999"),
-        entered_unit_cost=Decimal("10"),
-        entered_currency="USD",
-        currency="MXN",
-        unit="month",
-        billing_frequency="monthly",
-        start_date=date(2026, 1, 1),
-    )
-    valuation = ValuedUnitCost(
-        unit_cost_mxn=Decimal("170"),
-        source_unit_cost=Decimal("10"),
-        source_currency="USD",
-        valuation_date=date(2026, 8, 29),
-        fx_rate=Decimal("17"),
-        fx_rate_date=date(2026, 8, 28),
-        provisional=True,
-    )
-
-    class Repository:
-        @staticmethod
-        def cost_items():
-            return [item]
-
-        @staticmethod
-        def cost_catalog_valuations(_items):
-            return {item.id: valuation}
-
-    row = _catalog_rows(Repository())[0]
-
-    assert row["unit_cost"] == "10.00"
-    assert row["currency"] == "USD"
-    assert row["fx_rate"] == "17.0000"
-    assert row["fx_date"] == "2026-08-28"
-    assert row["valuation_date"] == "2026-08-29"
-    assert row["fx_status"] == "Provisional"
-    assert row["base_amount"] == "$340.00 MXN"
 
 
 def test_management_table_prioritizes_operational_columns() -> None:
@@ -238,10 +209,6 @@ def test_management_table_prioritizes_operational_columns() -> None:
         "unit",
         "unit_cost",
         "currency",
-        "fx_rate",
-        "fx_date",
-        "valuation_date",
-        "fx_status",
         "base_amount",
         "start_date",
         "end_date",
@@ -290,7 +257,7 @@ def test_internal_cost_fields_are_excluded_from_rendered_columns() -> None:
 
 
 def test_base_amount_column_uses_plain_label_with_currency_in_value() -> None:
-    table = data_table("test-costs-table", [{"base_amount": "$123.45 MXN"}])
+    table = data_table("test-costs-table", [{"base_amount": "$123.45 USD"}])
 
     assert table.to_plotly_json()["props"]["columns"] == [{"name": "Base Amount", "id": "base_amount"}]
 

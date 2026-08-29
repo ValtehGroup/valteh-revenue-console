@@ -13,9 +13,7 @@ from sqlalchemy import or_, select
 from app.config import BASE_DIR, get_settings
 from app.data.fx_rate_repository import FxRateRepository
 from app.domain.cost_engine import (
-    ValuedUnitCost,
     calculate_variable_cost,
-    catalog_cost_valuation_date,
     fixed_cost_occurs,
     fixed_cost_valuation_date,
     is_cost_effective,
@@ -25,7 +23,7 @@ from app.domain.cost_engine import (
     resolve_effective_cost_items,
     value_cost_unit,
 )
-from app.domain.fx_rates import DatedFxRateBook
+from app.domain.fx_rates import DatedFxRateBook, ResolvedFxRate
 from app.domain.models import (
     Client,
     ClientProfitability,
@@ -344,33 +342,14 @@ class SeedRepository:
         fx_rates = self._dated_fx_rates(relevant_items, valuation_dates)
         return monthly_cost_amounts(items, period_month, usage, fx_rates)
 
-    def cost_catalog_valuations(
-        self,
-        cost_items: list[CostItem] | None = None,
-        *,
-        today: date | None = None,
-    ) -> dict[int, ValuedUnitCost]:
-        """Value catalog rows as of their relevant reference date in one FX query."""
+    def usd_mxn_rates_for_dates(self, valuation_dates: list[date]) -> dict[date, ResolvedFxRate]:
+        """Return the persisted FIX reference for each requested display date."""
 
-        items = cost_items if cost_items is not None else self.cost_items()
-        current_date = today or mexico_today()
-        valuation_dates = [catalog_cost_valuation_date(item, today=current_date) for item in items]
-        fx_rates = self._dated_fx_rates(items, valuation_dates)
-        return {
-            item.id: value_cost_unit(
-                item,
-                valuation_date,
-                fx_rates,
-                provisional=(
-                    item.enabled
-                    and item.record_type == "actual"
-                    and valuation_date == current_date
-                    and item.billing_frequency != "once"
-                    and (item.end_date is None or item.end_date >= current_date)
-                ),
-            )
-            for item, valuation_date in zip(items, valuation_dates, strict=True)
-        }
+        dates = sorted(set(valuation_dates))
+        if not dates:
+            return {}
+        rate_book = self._fx_rate_book(dates[0], dates[-1])
+        return {valuation_date: rate_book.resolve("USD", valuation_date) for valuation_date in dates}
 
     def variable_cost(self, usage_events: list[UsageEvent], cost_items: list[CostItem] | None = None) -> Decimal:
         items = cost_items if cost_items is not None else self.cost_items()
@@ -534,8 +513,9 @@ class SeedRepository:
         requires_usd = any((item.entered_currency or item.currency).strip().upper() == "USD" for item in cost_items)
         if not requires_usd or not valuation_dates:
             return None
-        starting_at = min(valuation_dates)
-        ending_at = max(valuation_dates)
+        return self._fx_rate_book(min(valuation_dates), max(valuation_dates))
+
+    def _fx_rate_book(self, starting_at: date, ending_at: date) -> DatedFxRateBook:
         for cached_start, cached_end, rate_book in self._fx_rate_books:
             if cached_start <= starting_at and cached_end >= ending_at:
                 return rate_book

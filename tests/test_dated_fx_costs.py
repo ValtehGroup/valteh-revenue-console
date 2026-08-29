@@ -7,7 +7,6 @@ from app.data.repositories import SeedRepository
 from app.domain.cost_engine import (
     calculate_fixed_costs,
     calculate_variable_cost,
-    catalog_cost_valuation_date,
     monthly_cost_amounts,
 )
 from app.domain.fx_rates import (
@@ -115,17 +114,6 @@ def test_fixed_cost_frequency_uses_month_end_and_one_time_dates() -> None:
     assert by_key["software.annual"].fx_rate == Decimal("20")
     assert by_key["software.once"].valuation_date == date(2026, 5, 15)
     assert by_key["software.once"].fx_rate == Decimal("18")
-
-
-def test_catalog_valuation_uses_today_end_date_or_one_time_start_date() -> None:
-    today = date(2026, 8, 29)
-
-    assert catalog_cost_valuation_date(_cost(), today=today) == today
-    assert catalog_cost_valuation_date(_cost(end_date=date(2026, 7, 31)), today=today) == date(2026, 7, 31)
-    assert catalog_cost_valuation_date(
-        _cost(billing_frequency="once", start_date=date(2026, 5, 15)),
-        today=today,
-    ) == date(2026, 5, 15)
 
 
 def test_current_month_fixed_cost_is_valued_today_and_marked_provisional() -> None:

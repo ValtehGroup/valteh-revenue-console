@@ -251,24 +251,6 @@ def fixed_cost_valuation_date(item: CostItem, month: date, *, today: date | None
     return month_end
 
 
-def catalog_cost_valuation_date(item: CostItem, *, today: date | None = None) -> date:
-    """Return the reference date used to value one cost-catalog row.
-
-    The catalog is an as-of view rather than an accounting occurrence. Ongoing
-    recurring and usage rates therefore use today, ended rates use their last
-    effective date, and one-time costs retain their actual occurrence date.
-    """
-
-    current_date = today or mexico_today()
-    if item.billing_frequency == "once":
-        if item.start_date is None:
-            raise ValueError(f"One-time cost item '{item.cost_key}' requires a start date for FX valuation.")
-        return item.start_date
-    if item.end_date is not None and item.end_date < current_date:
-        return item.end_date
-    return current_date
-
-
 def _is_provisional_fixed_valuation(item: CostItem, month: date, *, today: date | None = None) -> bool:
     if item.billing_frequency == "once":
         return False
