@@ -25,6 +25,10 @@ class Settings(BaseSettings):
         description="Server-only Admin API key used to read Anthropic usage and cost reports.",
     )
     anthropic_history_overlap_days: int = Field(default=7, ge=0, le=31)
+    banxico_sie_token: SecretStr | None = Field(
+        default=None,
+        description="Server-only token used to read Banxico SIE time series.",
+    )
 
     model_config = SettingsConfigDict(env_file=BASE_DIR / ".env", env_file_encoding="utf-8")
 
@@ -38,6 +42,13 @@ class Settings(BaseSettings):
     @field_validator("anthropic_admin_key", mode="before")
     @classmethod
     def empty_anthropic_key_as_none(cls, value: Any) -> Any:
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+    @field_validator("banxico_sie_token", mode="before")
+    @classmethod
+    def empty_banxico_token_as_none(cls, value: Any) -> Any:
         if isinstance(value, str) and not value.strip():
             return None
         return value

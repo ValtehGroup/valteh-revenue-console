@@ -89,7 +89,20 @@ Recognition rules:
 | `usage` | Matching event quantity × unit cost |
 
 For usage costs, **Unit** must match the operational event type, for example `saremi.document_validation`. Costs are
-reported in MXN; entered USD costs currently use the configured static conversion rate.
+reported in MXN. The original amount and currency remain attached to each cost record; USD costs are translated using
+the persisted Banxico FIX applicable to the date on which the cost is recognized.
+
+USD usage costs use each event's date. One-time costs use their start date. Closed-month recurring monthly and annual
+costs use the month's final calendar day; the current month uses today's Mexico City date and is provisional. If the
+valuation date is a weekend or Banxico holiday, the dashboard uses the latest prior FIX, up to seven calendar days old.
+It never selects a future observation or silently falls back to the static ingestion rate. The realized-cost table
+shows the applied FX rate, FIX date, and valuation date for audit. Run **Update FX history** on Scenarios if required
+history is unavailable.
+
+The expanded **Costs Table** is an as-of catalog view. Its MXN base amount is recalculated from the original entered
+amount. Active recurring and usage costs use today's Mexico City date, ended costs use their end date, and one-time
+costs use their start date. The table shows the applied FX rate, FIX date, valuation date, and whether the current
+valuation is provisional. MXN-entered costs remain unchanged and show FX as not applicable.
 
 There is no general Delete cost action. End normal contracts and deactivate mistaken records.
 
@@ -142,10 +155,23 @@ source status is successful, its type is supported, and its external client refe
 ## Scenarios
 
 Scenarios is a six-month comparison of Base, Pessimistic, and Optimistic cases. Use the compact controls beside the
-forecast assumptions to set the baseline USD/MXN rate and the downside/upside percentage changes. They default to 18
-MXN per USD, +20% for Pessimistic, and -10% for Optimistic, and reset when the page is refreshed. Valid changes update
-the KPI cards, charts, and monthly table automatically. USD-entered fixed and variable costs are revalued from their
-original USD amounts, while costs entered in MXN are not affected by the exchange-rate assumption.
+forecast assumptions to set the baseline USD/MXN rate and the downside/upside percentage changes. The baseline defaults
+to the latest persisted Banxico FIX (or 18 only when no history exists); Pessimistic defaults to +20% and Optimistic to
+-10%. Refreshing the page reloads that latest persisted baseline. Valid changes update the KPI cards, charts, and
+monthly table automatically. USD-entered fixed and variable costs are revalued from their original USD amounts, while
+costs entered in MXN are not affected by the exchange-rate assumption.
+
+The **USD/MXN FIX history** card reads persisted Banco de México series `SF43718` observations and shows the latest 12
+months. Select **Update FX history** to contact Banxico explicitly. The first successful update imports observations
+from `2015-01-01`; later updates refresh a seven-calendar-day overlap. Weekends, Mexican bank holidays, and days before
+FIX is published may have no observation. A successful update places the latest persisted FIX in the editable baseline
+field and recalculates the scenarios. Failed updates preserve the current baseline and stored chart.
+
+Historical FIX observations, the editable Scenario assumption, and the compatibility MXN snapshot created when a cost
+is saved are separate concepts. Actual historical calculations use the original entered amount and the dated FIX;
+Scenario forecasts continue to use their explicit assumptions. Updating FIX history does not rewrite cost records.
+Because Banxico may revise an observation, a derived historical report may change after synchronization. Freezing the
+rate used for a posted invoice or accounting event requires a future persisted ledger decision.
 
 Scenario results do not modify pricing plans, costs, clients, or forecasts stored elsewhere.
 

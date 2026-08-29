@@ -1,3 +1,4 @@
+from datetime import date
 from decimal import Decimal
 
 from dash import dcc
@@ -5,6 +6,8 @@ from dash import dcc
 from app.components.chart_theme import DEFAULT_PLOTLY_COLORWAY
 from app.components.tables import data_table
 from app.data.repositories import SeedRepository
+from app.domain.cost_engine import CostAmount, ValuedUnitCost
+from app.domain.models import CostItem
 from app.main import create_app
 from app.pages.costs import (
     _action_form,
@@ -12,6 +15,7 @@ from app.pages.costs import (
     _cost_table_styles,
     _cost_type_for_frequency,
     _month_options,
+    _monthly_cost_rows,
     _selected_cost,
     _summarize_cost_rows,
     _year_cost_chart,
@@ -57,6 +61,45 @@ def test_cost_summary_reconciles_fixed_variable_and_one_time_costs() -> None:
     }
 
 
+def test_monthly_cost_table_exposes_dated_fx_audit_fields() -> None:
+    amount = CostAmount(
+        cost_key="software.usd",
+        name="USD subscription",
+        provider="Provider",
+        category="Software",
+        service_line="Shared",
+        cost_type="fixed",
+        charge_basis="flat",
+        quantity=Decimal("1"),
+        unit_cost=Decimal("10"),
+        currency="USD",
+        unit="month",
+        billing_frequency="monthly",
+        start_date=date(2026, 1, 1),
+        end_date=None,
+        record_type="actual",
+        amount=Decimal("170.43"),
+        source_unit_cost=Decimal("10"),
+        source_currency="USD",
+        fx_rate=Decimal("17.0427"),
+        valuation_date=date(2026, 8, 29),
+        fx_rate_date=date(2026, 8, 28),
+        provisional_fx=True,
+    )
+
+    class Repository:
+        @staticmethod
+        def monthly_cost_amounts(_month: str):
+            return [amount]
+
+    row = _monthly_cost_rows(Repository(), "2026-08")[0]
+
+    assert row["fx_rate"] == "17.0427"
+    assert row["fx_date"] == "2026-08-28"
+    assert row["valuation_date"] == "2026-08-29"
+    assert row["fx_status"] == "Provisional"
+
+
 def test_year_chart_stacks_fixed_and_variable_monthly_costs() -> None:
     figure = _year_cost_chart(
         [
@@ -92,8 +135,7 @@ def test_cost_form_offers_only_actual_and_estimate_record_types() -> None:
     record_type = next(
         component
         for component in _walk(form)
-        if isinstance(component, dcc.Dropdown)
-        and component.id == {"type": "cost-field", "name": "record_type"}
+        if isinstance(component, dcc.Dropdown) and component.id == {"type": "cost-field", "name": "record_type"}
     )
 
     assert [option["value"] for option in record_type.options] == ["actual", "estimate"]
@@ -111,21 +153,76 @@ def test_management_table_includes_ids_status_and_audit_timestamps() -> None:
     rows = _catalog_rows(repo)
 
     assert rows
-    assert {"id", "status", "base_amount", "created_at", "updated_at", "updated_at_raw"} <= rows[0].keys()
+    assert {
+        "id",
+        "status",
+        "fx_rate",
+        "fx_date",
+        "valuation_date",
+        "fx_status",
+        "base_amount",
+        "created_at",
+        "updated_at",
+        "updated_at_raw",
+    } <= rows[0].keys()
     assert rows[0]["created_at"].endswith(" UTC")
     assert rows[0]["updated_at"].endswith(" UTC")
     assert len(rows[0]["id"]) >= 4
     assert rows[0]["quantity"].replace(",", "").isdigit()
     assert len(rows[0]["unit_cost"].split(".")[-1]) == 2
-    assert rows[0]["base_amount"] == f"${repo.cost_items()[0].configured_amount:,.2f} MXN"
     assert all(row["status"] == row["status"].lower() for row in rows)
+
+
+def test_management_table_uses_and_exposes_catalog_fx_valuation() -> None:
+    item = CostItem(
+        id=1,
+        cost_key="software.usd",
+        name="USD subscription",
+        category="Software",
+        cost_type="fixed",
+        charge_basis="flat",
+        quantity=Decimal("2"),
+        unit_cost=Decimal("999"),
+        entered_unit_cost=Decimal("10"),
+        entered_currency="USD",
+        currency="MXN",
+        unit="month",
+        billing_frequency="monthly",
+        start_date=date(2026, 1, 1),
+    )
+    valuation = ValuedUnitCost(
+        unit_cost_mxn=Decimal("170"),
+        source_unit_cost=Decimal("10"),
+        source_currency="USD",
+        valuation_date=date(2026, 8, 29),
+        fx_rate=Decimal("17"),
+        fx_rate_date=date(2026, 8, 28),
+        provisional=True,
+    )
+
+    class Repository:
+        @staticmethod
+        def cost_items():
+            return [item]
+
+        @staticmethod
+        def cost_catalog_valuations(_items):
+            return {item.id: valuation}
+
+    row = _catalog_rows(Repository())[0]
+
+    assert row["unit_cost"] == "10.00"
+    assert row["currency"] == "USD"
+    assert row["fx_rate"] == "17.0000"
+    assert row["fx_date"] == "2026-08-28"
+    assert row["valuation_date"] == "2026-08-29"
+    assert row["fx_status"] == "Provisional"
+    assert row["base_amount"] == "$340.00 MXN"
 
 
 def test_management_table_prioritizes_operational_columns() -> None:
     row = _catalog_rows(SeedRepository())[0]
-    visible_columns = [
-        column for column in row if column not in {"cost_key", "created_at", "updated_at_raw"}
-    ]
+    visible_columns = [column for column in row if column not in {"cost_key", "created_at", "updated_at_raw"}]
 
     assert visible_columns == [
         "id",
@@ -141,6 +238,10 @@ def test_management_table_prioritizes_operational_columns() -> None:
         "unit",
         "unit_cost",
         "currency",
+        "fx_rate",
+        "fx_date",
+        "valuation_date",
+        "fx_status",
         "base_amount",
         "start_date",
         "end_date",
@@ -191,9 +292,7 @@ def test_internal_cost_fields_are_excluded_from_rendered_columns() -> None:
 def test_base_amount_column_uses_plain_label_with_currency_in_value() -> None:
     table = data_table("test-costs-table", [{"base_amount": "$123.45 MXN"}])
 
-    assert table.to_plotly_json()["props"]["columns"] == [
-        {"name": "Base Amount", "id": "base_amount"}
-    ]
+    assert table.to_plotly_json()["props"]["columns"] == [{"name": "Base Amount", "id": "base_amount"}]
 
 
 def test_success_refresh_signal_updates_management_table_and_dashboard() -> None:

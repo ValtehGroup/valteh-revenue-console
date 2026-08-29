@@ -180,7 +180,7 @@ def test_scenario_page_has_compact_editable_fx_assumptions() -> None:
     assert baseline is not None
     assert isinstance(baseline, dcc.Input)
     assert baseline.type == "text"
-    assert baseline.inputMode == "decimal"
+    assert baseline.inputMode == "numeric"
     assert baseline.value == 18.0
     assert baseline.min == 0.01
     assert baseline.step == 0.01

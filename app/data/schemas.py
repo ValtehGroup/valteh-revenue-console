@@ -275,6 +275,23 @@ class EventImportCursorORM(Base):
     error_message: Mapped[str | None] = mapped_column(Text)
 
 
+class USDMXNRateORM(Base):
+    __tablename__ = "usd_mxn_rates"
+    __table_args__ = (
+        UniqueConstraint("series_id", "rate_date", name="uq_usd_mxn_rates_series_date"),
+        CheckConstraint("rate > 0", name="ck_usd_mxn_rates_positive_rate"),
+        Index("ix_usd_mxn_rates_series_date", "series_id", "rate_date"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    series_id: Mapped[str] = mapped_column(String(40), nullable=False)
+    rate_date: Mapped[date] = mapped_column(Date, nullable=False)
+    rate: Mapped[Decimal] = mapped_column(Numeric(18, 6), nullable=False)
+    source: Mapped[str] = mapped_column(String(40), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class AnthropicUsageDailyORM(Base):
     """Immutable-grain daily usage facts returned by Anthropic."""
 
