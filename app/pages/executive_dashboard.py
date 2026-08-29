@@ -19,7 +19,7 @@ def layout():
         [
             html.Div(
                 [
-                    html.H1("Executive Dashboard", className="h3"),
+                    html.H1("Executive Summary", className="h3"),
                     html.P("Monthly economics overview", className="text-muted"),
                 ]
             ),
@@ -146,30 +146,27 @@ def _dashboard_content(month: str):
                 [
                     dbc.Col(
                         dcc.Graph(
-                            figure=pie_chart(
+                            figure=_executive_pie_chart(
                                 revenue_by_service,
                                 "Revenue by Service Line",
-                                default_plotly_colors=True,
                             )
                         ),
                         md=4,
                     ),
                     dbc.Col(
                         dcc.Graph(
-                            figure=bar_chart(
+                            figure=_executive_bar_chart(
                                 cost_by_service,
                                 "Cost by Service Line",
-                                default_plotly_colors=True,
                             )
                         ),
                         md=4,
                     ),
                     dbc.Col(
                         dcc.Graph(
-                            figure=bar_chart(
+                            figure=_executive_bar_chart(
                                 _margin_by_service(revenue_by_service, cost_by_service),
                                 "Margin by Service Line",
-                                default_plotly_colors=True,
                             )
                         ),
                         md=4,
@@ -181,20 +178,18 @@ def _dashboard_content(month: str):
                 [
                     dbc.Col(
                         dcc.Graph(
-                            figure=bar_chart(
+                            figure=_executive_bar_chart(
                                 cost_by_provider,
                                 "Costs by Provider",
-                                default_plotly_colors=True,
                             )
                         ),
                         md=6,
                     ),
                     dbc.Col(
                         dcc.Graph(
-                            figure=bar_chart(
+                            figure=_executive_bar_chart(
                                 cost_by_category,
                                 "Costs by Category",
-                                default_plotly_colors=True,
                             )
                         ),
                         md=6,
@@ -312,6 +307,29 @@ def _monthly_revenue_card_content(month: str, show_split: bool) -> list:
 
 def _display_rows(rows: list[dict]) -> list[dict]:
     return [{key: value for key, value in row.items() if key != "revenue_value"} for row in rows]
+
+
+def _executive_bar_chart(data: dict[str, Decimal], title: str):
+    figure = bar_chart(data, title, default_plotly_colors=True)
+    figure.update_traces(
+        customdata=[_format_mxn_thousands(value) for value in data.values()],
+        hovertemplate="%{x}<br>%{customdata}<extra></extra>",
+    )
+    figure.update_yaxes(tickformat=",.0f")
+    return figure
+
+
+def _executive_pie_chart(data: dict[str, Decimal], title: str):
+    figure = pie_chart(data, title, default_plotly_colors=True)
+    figure.update_traces(
+        customdata=[_format_mxn_thousands(value) for value in data.values()],
+        hovertemplate="%{label}<br>%{customdata}<extra></extra>",
+    )
+    return figure
+
+
+def _format_mxn_thousands(value: Decimal) -> str:
+    return f"{value / Decimal('1000'):,.1f}k MXN"
 
 
 def _average_document_price(repo: SeedRepository, month: str) -> Decimal:

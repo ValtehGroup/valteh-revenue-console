@@ -443,7 +443,7 @@ The imported-event pipeline should feed these methods through normalized `UsageE
 
 Recommended dashboard metrics from imported events and local economic interpretation:
 
-### Executive Dashboard
+### Executive Summary
 
 - Monthly recurring revenue.
 - Usage revenue.

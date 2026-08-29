@@ -8,7 +8,7 @@ subscriptions and billable usage; they are not proof that an invoice was issued 
 
 ## Main capabilities
 
-- **Executive Dashboard:** monthly revenue, fixed and variable costs, operating margin, burn rate, break-even usage,
+- **Executive Summary:** monthly revenue, fixed and variable costs, operating margin, burn rate, break-even usage,
   service-line economics, and client profitability.
 - **Clients:** durable client records, dated pricing subscriptions, external source references, monthly economics,
   usage history, and calculated revenue events.
