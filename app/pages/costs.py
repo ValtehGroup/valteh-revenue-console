@@ -435,7 +435,14 @@ def _dashboard_content(selected_month: str) -> html.Div:
                 className="mb-3",
             ),
             dbc.Card(
-                dbc.CardBody(data_table("monthly-costs-table", _monthly_cost_rows(repo, selected_month), 10)),
+                dbc.CardBody(
+                    data_table(
+                        "monthly-costs-table",
+                        _monthly_cost_rows(repo, selected_month),
+                        10,
+                        column_options={"usd_mxn_used": {"name": "USD_MXN_used"}},
+                    )
+                ),
                 className="content-card mb-4",
             ),
         ]
@@ -482,7 +489,6 @@ def _catalog_rows(repo: SeedRepository, status: str = "all") -> list[dict]:
         items = [item for item in items if item.enabled]
     elif status == "inactive":
         items = [item for item in items if not item.enabled]
-    valuations = repo.cost_catalog_valuations(items)
     return [
         {
             "id": f"{item.id:04d}",
@@ -503,13 +509,7 @@ def _catalog_rows(repo: SeedRepository, status: str = "all") -> list[dict]:
             "unit": item.unit,
             "unit_cost": f"{item.display_unit_cost:,.2f}",
             "currency": item.display_currency,
-            "fx_rate": f"{valuations[item.id].fx_rate:,.4f}" if valuations[item.id].fx_rate is not None else "N/A",
-            "fx_date": valuations[item.id].fx_rate_date.isoformat() if valuations[item.id].fx_rate_date else "",
-            "valuation_date": valuations[item.id].valuation_date.isoformat(),
-            "fx_status": (
-                "Provisional" if valuations[item.id].fx_rate is not None and valuations[item.id].provisional else ""
-            ),
-            "base_amount": f"${item.quantity * valuations[item.id].unit_cost_mxn:,.2f} MXN",
+            "base_amount": f"${item.entered_configured_amount:,.2f} {item.display_currency}",
             "start_date": item.start_date.isoformat() if item.start_date else "",
             "end_date": item.end_date.isoformat() if item.end_date else "",
             "record_type": item.record_type,
@@ -769,6 +769,10 @@ def _cost_type_for_frequency(billing_frequency: str | None) -> str:
 
 
 def _monthly_cost_rows(repo: SeedRepository, selected_month: str) -> list[dict]:
+    amounts = repo.monthly_cost_amounts(selected_month)
+    reference_rates = repo.usd_mxn_rates_for_dates(
+        [cost.valuation_date for cost in amounts if cost.valuation_date is not None]
+    )
     return [
         {
             "cost_key": cost.cost_key,
@@ -780,16 +784,13 @@ def _monthly_cost_rows(repo: SeedRepository, selected_month: str) -> list[dict]:
             "quantity": f"{cost.quantity:,.0f}",
             "unit_cost": f"{cost.unit_cost:,.2f}",
             "currency": cost.currency,
-            "fx_rate": f"{cost.fx_rate:,.4f}" if cost.fx_rate is not None else "",
-            "fx_date": cost.fx_rate_date.isoformat() if cost.fx_rate_date else "",
-            "valuation_date": cost.valuation_date.isoformat() if cost.fx_rate is not None else "",
-            "fx_status": "Provisional" if cost.provisional_fx and cost.fx_rate is not None else "",
+            "usd_mxn_used": f"{reference_rates[cost.valuation_date].rate:,.4f}",
             "unit": cost.unit,
             "amount": format_mxn(cost.amount),
             "start_date": cost.start_date.isoformat() if cost.start_date else "",
             "end_date": cost.end_date.isoformat() if cost.end_date else "",
         }
-        for cost in repo.monthly_cost_amounts(selected_month)
+        for cost in amounts
     ]
 
 

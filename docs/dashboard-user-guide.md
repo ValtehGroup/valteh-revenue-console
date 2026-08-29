@@ -96,13 +96,18 @@ USD usage costs use each event's date. One-time costs use their start date. Clos
 costs use the month's final calendar day; the current month uses today's Mexico City date and is provisional. If the
 valuation date is a weekend or Banxico holiday, the dashboard uses the latest prior FIX, up to seven calendar days old.
 It never selects a future observation or silently falls back to the static ingestion rate. The realized-cost table
-shows the applied FX rate, FIX date, and valuation date for audit. Run **Update FX history** on Scenarios if required
-history is unavailable.
+shows the resulting reference as **USD_MXN_used**. Run **Update FX history** on Scenarios if required history is
+unavailable. The underlying calculation still retains the requested valuation date and Banxico observation date for
+audit, without displaying those implementation details as separate columns.
 
-The expanded **Costs Table** is an as-of catalog view. Its MXN base amount is recalculated from the original entered
-amount. Active recurring and usage costs use today's Mexico City date, ended costs use their end date, and one-time
-costs use their start date. The table shows the applied FX rate, FIX date, valuation date, and whether the current
-valuation is provisional. MXN-entered costs remain unchanged and show FX as not applicable.
+The expanded **Costs Table** contains cost definitions rather than individual recognized expenses, so it does not show
+an FX rate. Its Base Amount is quantity multiplied by the original entered unit cost and is displayed in that original
+currency. Monthly totals, annual totals, KPI cards, and breakdowns instead aggregate dated in-memory cost occurrences.
+Those occurrences retain the original currency, requested valuation date, applied FIX, Banxico observation date, MXN
+amount, and provisional status even though the catalog does not display those details.
+
+Recognized occurrences are calculated when requested and are not persisted. Freezing posted or invoiced expenses in
+an accounting ledger remains a separate future decision.
 
 There is no general Delete cost action. End normal contracts and deactivate mistaken records.
 

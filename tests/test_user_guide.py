@@ -10,29 +10,21 @@ def test_user_guide_is_linked_and_renders_repository_markdown() -> None:
     assert GUIDE_ITEM not in NAV_ITEMS
 
     sidebar_footer = next(
-        component
-        for component in _walk(app_layout())
-        if getattr(component, "className", None) == "sidebar-footer"
+        component for component in _walk(app_layout()) if getattr(component, "className", None) == "sidebar-footer"
     )
     assert sidebar_footer.children[0].href == "/guide"
 
     page = page_layout("/guide")
     guide_nav, guide_content = page.children
-    markdown_components = [
-        component for component in _walk(guide_content) if isinstance(component, dcc.Markdown)
-    ]
+    markdown_components = [component for component in _walk(guide_content) if isinstance(component, dcc.Markdown)]
     rendered_markdown = "\n\n".join(component.children for component in markdown_components)
-    nav_links = [
-        component
-        for component in _walk(guide_nav)
-        if getattr(component, "href", "").startswith("#")
-    ]
+    nav_links = [component for component in _walk(guide_nav) if getattr(component, "href", "").startswith("#")]
 
     assert guide_nav.className == "user-guide-nav"
     assert guide_content.className == "user-guide-content"
     assert {link.href for link in nav_links} >= {
         "#general-interaction",
-        "#executive-dashboard",
+        "#executive-summary",
         "#clients",
         "#costs",
         "#pricing",
