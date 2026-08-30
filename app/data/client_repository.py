@@ -5,6 +5,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal, InvalidOperation
 from typing import Any
 from uuid import uuid4
 
@@ -58,6 +59,24 @@ class ClientCommand:
     source_system: str | None = None
     external_client_reference: str | None = None
     pricing_plan_id: int | str | None = None
+    contract_terms: ContractTermsOverride | None = None
+
+
+@dataclass(frozen=True)
+class ContractTermsOverride:
+    monthly_fee: Decimal | str | None = None
+    annual_fee: Decimal | str | None = None
+    included_documents: int | str | None = None
+    overage_price: Decimal | str | None = None
+    setup_fee: Decimal | str | None = None
+    setup_disposition: str | None = None
+    one_time_fee: Decimal | str | None = None
+    minimum_term_months: int | str | None = None
+    discount_percentage: Decimal | str | None = None
+    discount_reason: str | None = None
+    approved_by: str | None = None
+    channel_partner_code: str | None = None
+    channel_commission_pct: Decimal | str | None = None
 
 
 @dataclass(frozen=True)
@@ -125,13 +144,9 @@ class ClientRepository:
                             raise ClientValidationError(
                                 "Client-specific pricing plans cannot be assigned during client creation."
                             )
+                        _validate_assignable_plan(pricing_plan, row.id, row.start_date)
                         session.add(
-                            ClientSubscriptionORM(
-                                client_id=row.id,
-                                pricing_plan_id=pricing_plan.id,
-                                start_date=row.start_date,
-                                status="active",
-                            )
+                            _subscription_snapshot(row.id, pricing_plan, row.start_date, now, command.contract_terms)
                         )
                     if values["source_system"]:
                         self._add_reference_row(
@@ -188,6 +203,7 @@ class ClientRepository:
         pricing_plan_id: int | str,
         effective_from: date | str,
         expected_updated_at: datetime | str,
+        contract_terms: ContractTermsOverride | None = None,
     ) -> ClientSubscription:
         plan_id = _optional_positive_int(pricing_plan_id, "pricing_plan_id")
         effective_date = _parse_date(effective_from, "effective_from", required=True)
@@ -207,8 +223,7 @@ class ClientRepository:
                     plan = session.get(PricingPlanORM, plan_id)
                     if plan is None:
                         raise ClientValidationError("The selected pricing plan is no longer available.")
-                    if plan.dedicated_client_id is not None and plan.dedicated_client_id != client_id:
-                        raise ClientValidationError("The selected pricing plan is dedicated to another client.")
+                    _validate_assignable_plan(plan, client_id, effective_date)
 
                     subscriptions = session.scalars(
                         select(ClientSubscriptionORM)
@@ -234,11 +249,12 @@ class ClientRepository:
                         previous.end_date = effective_date - timedelta(days=1)
                         previous.status = "inactive"
 
-                    new_subscription = ClientSubscriptionORM(
-                        client_id=client_id,
-                        pricing_plan_id=plan_id,
-                        start_date=effective_date,
-                        status="active",
+                    new_subscription = _subscription_snapshot(
+                        client_id,
+                        plan,
+                        effective_date,
+                        _utc_now(),
+                        contract_terms,
                     )
                     session.add(new_subscription)
                     client.updated_at = _next_updated_at(client.updated_at)
@@ -450,6 +466,102 @@ def _validate_client_command(command: ClientCommand) -> dict[str, Any]:
         "external_client_reference": reference,
         "pricing_plan_id": _optional_positive_int(command.pricing_plan_id, "pricing_plan_id"),
     }
+
+
+def _validate_assignable_plan(plan: PricingPlanORM, client_id: int, effective_date: date) -> None:
+    if plan.dedicated_client_id is not None and plan.dedicated_client_id != client_id:
+        raise ClientValidationError("The selected pricing plan is dedicated to another client.")
+    if not plan.assignable or plan.status != "active":
+        raise ClientValidationError("The selected pricing plan is informational and cannot be assigned.")
+    if plan.assignment_requires_approval:
+        raise ClientValidationError("The selected pricing plan requires commercial approval before assignment.")
+    if plan.effective_from is not None and effective_date < plan.effective_from:
+        raise ClientValidationError("The selected pricing version is not effective on that date.")
+    if plan.effective_to is not None and effective_date > plan.effective_to:
+        raise ClientValidationError("The selected pricing version is no longer effective on that date.")
+    if effective_date.day != 1:
+        raise ClientValidationError("New commercial agreements must start on the first day of a billing month.")
+
+
+def _subscription_snapshot(
+    client_id: int,
+    plan: PricingPlanORM,
+    effective_date: date,
+    now: datetime,
+    override: ContractTermsOverride | None,
+) -> ClientSubscriptionORM:
+    terms = override or ContractTermsOverride()
+    if plan.pricing_model == "custom":
+        required = {
+            "monthly fee": terms.monthly_fee,
+            "included documents": terms.included_documents,
+            "overage price": terms.overage_price,
+            "setup fee": terms.setup_fee,
+            "setup disposition": terms.setup_disposition,
+            "one-time fee": terms.one_time_fee,
+        }
+        missing = [label for label, value in required.items() if value in (None, "")]
+        if missing:
+            raise ClientValidationError(f"Custom contracts require explicit {', '.join(missing)}.")
+    setup_disposition = terms.setup_disposition or ("charged" if Decimal(plan.setup_fee or 0) > 0 else "not_applicable")
+    if setup_disposition not in {"charged", "included", "waived", "not_applicable"}:
+        raise ClientValidationError("Setup disposition is invalid.")
+    setup_fee = _contract_decimal(terms.setup_fee, plan.setup_fee)
+    if setup_disposition != "charged":
+        setup_fee = Decimal("0")
+    minimum_setup = Decimal(plan.minimum_setup_fee or 0)
+    approved_by = _clean_text(terms.approved_by, "approved_by")
+    discount_reason = _clean_text(terms.discount_reason, "discount_reason")
+    if setup_disposition == "charged" and setup_fee < minimum_setup and (not approved_by or not discount_reason):
+        raise ClientValidationError("Setup below the catalog minimum requires a reason and an approver.")
+    included_documents = _contract_int(terms.included_documents, plan.included_documents)
+    return ClientSubscriptionORM(
+        client_id=client_id,
+        pricing_plan_id=plan.id,
+        start_date=effective_date,
+        status="active",
+        contracted_monthly_fee=_contract_decimal(terms.monthly_fee, plan.monthly_fixed_fee),
+        contracted_annual_fee=_contract_decimal(terms.annual_fee, plan.annual_fee),
+        contracted_included_documents=included_documents,
+        contracted_overage_price=_contract_decimal(terms.overage_price, plan.price_per_document),
+        contracted_setup_fee=setup_fee,
+        setup_disposition=setup_disposition,
+        contracted_one_time_fee=_contract_decimal(terms.one_time_fee, plan.one_time_fee),
+        currency=plan.currency,
+        billing_cycle_anchor=effective_date,
+        minimum_term_months=_contract_int(terms.minimum_term_months, 0),
+        discount_percentage=_contract_decimal(terms.discount_percentage, 0),
+        discount_reason=discount_reason,
+        approved_by=approved_by,
+        channel_partner_code=_clean_text(terms.channel_partner_code, "channel_partner_code"),
+        channel_commission_pct=_contract_decimal(terms.channel_commission_pct, 0),
+        data_origin="production",
+        usage_data_status="pending",
+        created_at=now,
+        updated_at=now,
+    )
+
+
+def _contract_decimal(value: Any, default: Any) -> Decimal:
+    candidate = default if value in (None, "") else value
+    try:
+        parsed = Decimal(str(candidate or 0))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise ClientValidationError("Contract monetary terms must be valid non-negative numbers.") from exc
+    if parsed < 0:
+        raise ClientValidationError("Contract monetary terms cannot be negative.")
+    return parsed
+
+
+def _contract_int(value: Any, default: Any) -> int:
+    candidate = default if value in (None, "") else value
+    try:
+        parsed = int(candidate or 0)
+    except (TypeError, ValueError) as exc:
+        raise ClientValidationError("Contract quantities must be valid non-negative integers.") from exc
+    if parsed < 0:
+        raise ClientValidationError("Contract quantities cannot be negative.")
+    return parsed
 
 
 def _validate_client_update(command: ClientUpdateCommand) -> dict[str, Any]:

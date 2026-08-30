@@ -7,6 +7,7 @@ from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
 
 REVISION = "20260827_08"
+CONSOLE_HEAD_REVISION = "20260830_12"
 MIGRATION_FILE = "20260827_08_anthropic_history.py"
 
 
@@ -52,7 +53,7 @@ def test_console_and_api_accept_the_same_alembic_revision_chain(tmp_path: Path) 
     _upgrade(sibling_root, database_url)
     engine = sa.create_engine(database_url)
     with engine.connect() as connection:
-        assert MigrationContext.configure(connection).get_current_revision() == REVISION
+        assert MigrationContext.configure(connection).get_current_revision() == CONSOLE_HEAD_REVISION
 
 
 def test_anthropic_history_migration_creates_unique_provider_fact_schema(tmp_path: Path) -> None:

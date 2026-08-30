@@ -40,6 +40,26 @@ def ensure_client_seeded(
             for record in plan_records:
                 dedicated_client_id = str(record.get("dedicated_client_id", "")).strip()
                 record["dedicated_client_id"] = int(dedicated_client_id) if dedicated_client_id else None
+                for field in {
+                    "setup_fee",
+                    "minimum_setup_fee",
+                    "one_time_fee",
+                    "monthly_fixed_fee",
+                    "included_documents",
+                    "price_per_document",
+                }:
+                    if str(record.get(field, "")).strip() == "":
+                        record[field] = None
+                for field in {
+                    "catalog_visible",
+                    "assignable",
+                    "assignment_requires_approval",
+                    "featured",
+                    "unlimited_users",
+                }:
+                    record[field] = _seed_bool(record.get(field))
+                record["effective_from"] = _seed_date(record.get("effective_from"))
+                record["effective_to"] = _seed_date(record.get("effective_to"))
             session.add_all([PricingPlanORM(**PricingPlan(**record).model_dump()) for record in plan_records])
 
         if not session.scalar(select(func.count()).select_from(ClientORM)):
@@ -74,6 +94,11 @@ def ensure_client_seeded(
                     "start_date": _seed_date(record["start_date"], required=True),
                     "end_date": _seed_date(record.get("end_date")),
                     "notes": str(record.get("notes", "")).strip() or None,
+                    "billing_cycle_anchor": _seed_date(record.get("billing_cycle_anchor")),
+                    "renewal_review_date": _seed_date(record.get("renewal_review_date")),
+                    "discount_reason": str(record.get("discount_reason", "")).strip() or None,
+                    "approved_by": str(record.get("approved_by", "")).strip() or None,
+                    "channel_partner_code": str(record.get("channel_partner_code", "")).strip() or None,
                 }
                 session.add(ClientSubscriptionORM(**ClientSubscription(**values).model_dump()))
     return inserted
@@ -133,6 +158,10 @@ def ensure_usage_seeded(csv_path: Path, session_factory=SessionLocal) -> int:
                 source_system=source_system,
                 external_reference_id=reference,
                 metadata_json=json.loads(metadata) if metadata else {},
+                data_origin=str(record.get("data_origin") or "demo").strip(),
+                environment=str(record.get("environment") or "sandbox").strip(),
+                is_billable=_seed_bool(record.get("is_billable")),
+                billable_unit_id=str(record.get("billable_unit_id", "")).strip() or None,
             )
             values = event.model_dump()
             values["metadata_json"] = json.dumps(values["metadata_json"], separators=(",", ":"), sort_keys=True)
@@ -154,3 +183,7 @@ def _seed_date(value, *, required: bool = False):
             raise ValueError("A required seed date is missing.")
         return None
     return pd.to_datetime(value, dayfirst=True).date()
+
+
+def _seed_bool(value) -> bool:
+    return str(value).strip().lower() in {"1", "true", "yes", "y"}

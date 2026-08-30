@@ -11,6 +11,7 @@ from app.data.client_repository import (
     ClientManagementError,
     ClientRepository,
     ClientUpdateCommand,
+    ContractTermsOverride,
 )
 from app.data.repositories import SeedRepository
 from app.domain.display_currency import normalize_display_currency
@@ -301,6 +302,11 @@ def _client_rows(repo: SeedRepository, month: str, status: str = "all") -> list[
         usage = repo.usage_for_client_month(client.id, month)
         profitability = repo.client_profitability(client.id, month)
         plan = repo.active_plan_for_client_month(client.id, month) if economically_active else None
+        subscription = (
+            repo.active_subscription_for_client_month(client.id, month)
+            if economically_active and hasattr(repo, "active_subscription_for_client_month")
+            else None
+        )
         client_fixed_cost = allocated_fixed_cost if economically_active else Decimal("0")
         operating_margin = profitability.gross_margin - client_fixed_cost
         margin_pct = operating_margin / money(profitability.revenue) if profitability.revenue else Decimal("0")
@@ -317,12 +323,20 @@ def _client_rows(repo: SeedRepository, month: str, status: str = "all") -> list[
                 "pricing_plan": plan.name if plan else "No active plan",
                 "pricing_plan_id": plan.id if plan else None,
                 "monthly_revenue": format_mxn(profitability.revenue),
-                "monthly_usage": f"{sum(event.quantity for event in usage):,.0f}",
+                "monthly_usage": (
+                    f"{_billable_document_usage(usage):,.0f}"
+                    if subscription is not None and subscription.usage_data_status == "available"
+                    else (
+                        "Pending integration"
+                        if subscription is not None and subscription.usage_data_status == "pending"
+                        else "Demo" if subscription is not None and subscription.usage_data_status == "demo" else "—"
+                    )
+                ),
                 "monthly_variable_cost": format_mxn(profitability.variable_cost),
                 "allocated_fixed_cost": format_mxn(client_fixed_cost),
                 "operating_margin": format_mxn(operating_margin),
                 "operating_margin_percentage": format_percent(margin_pct),
-                "alerts": _client_alert(client.status, plan, usage, margin_pct),
+                "alerts": _client_alert(client.status, plan, subscription, usage, margin_pct),
                 "created_at": _format_utc(client.created_at),
                 "updated_at": _format_utc(client.updated_at),
                 "notes": client.notes or "",
@@ -332,18 +346,49 @@ def _client_rows(repo: SeedRepository, month: str, status: str = "all") -> list[
     return rows
 
 
-def _client_alert(status: str, plan, usage: list, margin_pct: Decimal) -> str:
+def _client_alert(status: str, plan, subscription, usage: list, margin_pct: Decimal) -> str:
     if status == "inactive":
         return "Inactive"
     if plan is None:
         return "No active plan"
+    if subscription.usage_data_status == "pending":
+        return "Usage pending integration"
+    if subscription.usage_data_status == "demo":
+        return "Demo data — excluded from financials"
     if not usage:
         return "No usage recorded"
+    capacity = Decimal(subscription.contracted_included_documents or 0)
+    document_usage = _billable_document_usage(usage)
+    if capacity > 0:
+        utilization = document_usage / capacity
+        if utilization >= Decimal("2"):
+            return "200%+ utilization — protection review required (no automatic cutoff)"
+        if utilization >= Decimal("1.5"):
+            return "150%+ utilization — urgent commercial review"
+        if utilization >= Decimal("1.2"):
+            return "120%+ utilization — overage and upgrade review"
+        if utilization >= Decimal("1"):
+            return "100%+ utilization — overage active"
+        if utilization >= Decimal("0.85"):
+            return "85%+ utilization — upgrade review"
+        if utilization >= Decimal("0.70"):
+            return "70%+ utilization — monitor capacity"
     if margin_pct < Decimal("0.45"):
         return "Low margin"
     if sum(event.quantity for event in usage) > 6000:
         return "High usage"
     return "OK"
+
+
+def _billable_document_usage(usage: list) -> Decimal:
+    return sum(
+        (
+            Decimal(event.quantity)
+            for event in usage
+            if event.event_type in {"saremi.processed_document", "saremi.document_validation"}
+        ),
+        Decimal("0"),
+    )
 
 
 def _selected_client(selected_id: int | None, rows: list[dict] | None) -> dict | None:
@@ -400,7 +445,7 @@ def _action_title(action: str) -> str:
 def _action_form(action: str, selected: dict | None):
     selected = selected or {}
     if action == "change_plan":
-        pricing_plans = SeedRepository().pricing_plans(client_id=int(selected["id"]))
+        pricing_plans = SeedRepository().pricing_plans(client_id=int(selected["id"]), assignable_only=True)
         current_plan_id = selected.get("pricing_plan_id")
         default_plan = next((plan for plan in pricing_plans if plan.id != current_plan_id), None)
         return html.Div(
@@ -425,6 +470,7 @@ def _action_form(action: str, selected: dict | None):
                     kind="date",
                     required=True,
                 ),
+                *_contract_override_fields(),
             ]
         )
     if action == "deactivate":
@@ -505,6 +551,7 @@ def _action_form(action: str, selected: dict | None):
                     required=True,
                     options=[{"label": plan.name, "value": plan.id} for plan in pricing_plans],
                 ),
+                *_contract_override_fields(),
                 html.H3("Optional initial external reference", className="h6"),
                 _reference_example(),
                 _field("source_system", "Source system"),
@@ -528,6 +575,7 @@ def _execute_client_action(action: str, selected: dict | None, values: dict, exp
                 source_system=values.get("source_system"),
                 external_client_reference=values.get("external_client_reference"),
                 pricing_plan_id=values.get("pricing_plan_id"),
+                contract_terms=_contract_overrides(values),
             )
         )
         return
@@ -555,6 +603,7 @@ def _execute_client_action(action: str, selected: dict | None, values: dict, exp
             values.get("pricing_plan_id"),
             values.get("effective_from"),
             expected_updated_at,
+            _contract_overrides(values),
         )
     elif action == "deactivate":
         if not expected_updated_at:
@@ -580,6 +629,44 @@ def _success_message(action: str) -> str:
         "add_reference": "External reference added successfully.",
         "deactivate_reference": "External reference deactivated successfully.",
     }[action]
+
+
+def _contract_override_fields() -> list:
+    return [
+        html.P(
+            "Leave negotiated fields blank to snapshot the selected catalog version. "
+            "Setup can be charged, included, or waived.",
+            className="small text-muted",
+        ),
+        _field("contracted_monthly_fee", "Negotiated monthly fee", kind="number"),
+        _field("contracted_included_documents", "Included documents", kind="number"),
+        _field("contracted_overage_price", "Overage per document", kind="number"),
+        _field(
+            "setup_disposition",
+            "Setup treatment",
+            "charged",
+            options=[
+                {"label": "Charge catalog setup", "value": "charged"},
+                {"label": "Included", "value": "included"},
+                {"label": "Waived", "value": "waived"},
+            ],
+        ),
+        _field("contracted_setup_fee", "Negotiated setup fee", kind="number"),
+        _field("discount_reason", "Commercial exception reason"),
+        _field("approved_by", "Approved by (required below minimum)"),
+    ]
+
+
+def _contract_overrides(values: dict) -> ContractTermsOverride:
+    return ContractTermsOverride(
+        monthly_fee=values.get("contracted_monthly_fee"),
+        included_documents=values.get("contracted_included_documents"),
+        overage_price=values.get("contracted_overage_price"),
+        setup_fee=values.get("contracted_setup_fee"),
+        setup_disposition=values.get("setup_disposition"),
+        discount_reason=values.get("discount_reason"),
+        approved_by=values.get("approved_by"),
+    )
 
 
 def _reference_example() -> dbc.Alert:

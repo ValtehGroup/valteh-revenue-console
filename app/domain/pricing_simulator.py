@@ -45,12 +45,13 @@ class PricingSimulationResult:
     variable_cost_per_client: Decimal
     break_even_clients: int | None
     minimum_document_price: Decimal
+    recurring_revenue_per_document: Decimal | None
 
 
 def simulate_pricing(input_data: PricingSimulationInput) -> PricingSimulationResult:
     clients = Decimal(input_data.clients)
-    subscription_revenue = clients * money(input_data.pricing_plan.monthly_fixed_fee)
-    setup_revenue = Decimal(input_data.onboarding_clients) * money(input_data.pricing_plan.setup_fee)
+    subscription_revenue = clients * money(input_data.pricing_plan.monthly_fixed_fee or 0)
+    setup_revenue = Decimal(input_data.onboarding_clients) * money(input_data.pricing_plan.setup_fee or 0)
     usage_revenue_per_client = usage_revenue_for_client(input_data)
     usage_revenue = clients * usage_revenue_per_client
     variable_cost_per_client = variable_cost_for_client(input_data)
@@ -61,12 +62,17 @@ def simulate_pricing(input_data: PricingSimulationInput) -> PricingSimulationRes
     operating_margin = revenue - total_cost
     operating_margin_percentage = operating_margin / revenue if revenue else Decimal("0")
     recurring_margin_per_client = (
-        money(input_data.pricing_plan.monthly_fixed_fee) + usage_revenue_per_client - variable_cost_per_client
+        money(input_data.pricing_plan.monthly_fixed_fee or 0) + usage_revenue_per_client - variable_cost_per_client
     )
     break_even_clients = _safe_break_even_clients(fixed_cost, recurring_margin_per_client)
     minimum_document_price = calculate_minimum_unit_price(
         money(input_data.document_unit_cost) * money(input_data.variable_cost_multiplier),
         money(input_data.target_unit_margin),
+    )
+    recurring_revenue_per_document = (
+        (subscription_revenue + usage_revenue) / (clients * money(input_data.documents_per_client))
+        if clients and money(input_data.documents_per_client) > 0
+        else None
     )
     return PricingSimulationResult(
         revenue=revenue,
@@ -82,15 +88,31 @@ def simulate_pricing(input_data: PricingSimulationInput) -> PricingSimulationRes
         variable_cost_per_client=variable_cost_per_client,
         break_even_clients=break_even_clients,
         minimum_document_price=minimum_document_price,
+        recurring_revenue_per_document=recurring_revenue_per_document,
     )
+
+
+def crossover_documents(current_plan: PricingPlan, next_plan: PricingPlan, *, maximum: int = 100_000) -> int | None:
+    """Return the first whole-document volume where the next plan is no more expensive."""
+
+    for documents in range(max((current_plan.included_documents or 0) + 1, 1), maximum + 1):
+        if _recurring_plan_revenue(next_plan, documents) <= _recurring_plan_revenue(current_plan, documents):
+            return documents
+    return None
+
+
+def _recurring_plan_revenue(plan: PricingPlan, documents: int) -> Decimal:
+    return money(plan.monthly_fixed_fee or 0) + billable_units(
+        Decimal(documents), plan.included_documents or 0
+    ) * money(plan.price_per_document or 0)
 
 
 def usage_revenue_for_client(input_data: PricingSimulationInput) -> Decimal:
     plan = input_data.pricing_plan
     price_multiplier = money(input_data.price_multiplier)
     return (
-        billable_units(input_data.documents_per_client, plan.included_documents)
-        * money(plan.price_per_document)
+        billable_units(input_data.documents_per_client, plan.included_documents or 0)
+        * money(plan.price_per_document or 0)
         * price_multiplier
         + billable_units(input_data.validations_per_client, plan.included_validations)
         * money(plan.price_per_validation)

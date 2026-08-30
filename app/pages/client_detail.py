@@ -127,6 +127,7 @@ def _client_detail_content(
     service_cost = presentation["cost_by_service"]
     service_revenue = presentation["revenue_by_service"]
     subscription = repo.subscription_for_client_month(client.id, detail_month)
+    usage_status = subscription.usage_data_status if subscription else None
     plan = (
         next(plan for plan in repo.pricing_plans() if plan.id == subscription.pricing_plan_id) if subscription else None
     )
@@ -143,7 +144,11 @@ def _client_detail_content(
         }
     )
     historical_usage = sorted(
-        (event for event in repo.usage_events() if event.client_id == client.id),
+        (
+            event
+            for event in repo.usage_events()
+            if event.client_id == client.id and (event.data_origin == "production" or usage_status == "demo")
+        ),
         key=lambda event: event.event_timestamp,
         reverse=True,
     )
@@ -154,6 +159,8 @@ def _client_detail_content(
             "unit": event.unit,
             "timestamp": event.event_timestamp.strftime("%Y-%m-%d"),
             "source": event.source_system,
+            "data_origin": event.data_origin,
+            "billable": event.is_billable,
         }
         for event in historical_usage
     ]
@@ -172,10 +179,31 @@ def _client_detail_content(
             usd_view_note(currency),
             html.H2(f"{client.name} · {client.client_code}", className="h5"),
             dbc.Alert("No pricing plan for the selected period", color="secondary", is_open=plan is None),
-            dbc.Alert("No usage recorded for the selected period", color="secondary", is_open=not usage),
+            dbc.Alert(
+                "Uso SAREMI pendiente de integración. No se interpreta como cero y no genera overage.",
+                color="warning",
+                is_open=usage_status == "pending",
+            ),
+            dbc.Alert(
+                "Demo usage is shown only for testing and is excluded from production financial metrics.",
+                color="info",
+                is_open=usage_status == "demo",
+            ),
+            dbc.Alert(
+                "Measured usage is zero for the selected period.",
+                color="secondary",
+                is_open=usage_status == "available" and not usage,
+            ),
             dbc.Row(
                 [
-                    dbc.Col(dcc.Graph(figure=_usage_bar(service_usage, "Usage by Service")), md=4),
+                    dbc.Col(
+                        (
+                            dcc.Graph(figure=_usage_bar(service_usage, "Usage by Service"))
+                            if usage_status == "available"
+                            else html.Div("Usage unavailable", className="text-muted p-4")
+                        ),
+                        md=4,
+                    ),
                     dbc.Col(dcc.Graph(figure=_money_bar(service_revenue, "Revenue by Service", currency)), md=4),
                     dbc.Col(dcc.Graph(figure=_money_bar(service_cost, "Cost by Service", currency)), md=4),
                 ],
@@ -183,7 +211,14 @@ def _client_detail_content(
             ),
             dbc.Row(
                 [
-                    dbc.Col(dcc.Graph(figure=line_chart(trend, "month", "usage", "Historical Usage Trend")), md=6),
+                    dbc.Col(
+                        (
+                            dcc.Graph(figure=line_chart(trend, "month", "usage", "Historical Usage Trend"))
+                            if usage_status == "available"
+                            else html.Div("Usage trend pending integration", className="text-muted p-4")
+                        ),
+                        md=6,
+                    ),
                     dbc.Col(
                         dcc.Graph(
                             figure=_money_line(trend, "month", "operating_margin", "Historical Margin Trend", currency)
@@ -275,6 +310,11 @@ def _revenue_type_label(revenue_type: str) -> str:
     labels = {
         "subscription": "Subscription (fixed)",
         "usage": "Usage (variable)",
+        "platform_subscription": "Platform recurring",
+        "api_subscription": "API recurring",
+        "document_overage": "Document overage",
+        "setup_implementation": "Setup implementation",
+        "pilot_one_time": "Pilot one-time",
     }
     return labels.get(revenue_type, revenue_type)
 

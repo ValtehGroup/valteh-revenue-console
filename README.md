@@ -81,6 +81,10 @@ applied at the time. Normal lifecycle changes should create or close dated recor
 Pricing plans can be reusable or dedicated to one client. A dedicated ad-hoc plan is excluded from new-client choices
 and cannot be assigned to a different client.
 
+The SAREMI 2026 catalog is versioned separately from authoritative client contract snapshots. Demo usage is explicitly
+excluded from production financials, and missing SAREMI usage remains an unavailable state rather than a measured
+zero. See [SAREMI Pricing and Future Usage](docs/saremi-pricing-and-usage.md).
+
 Operational usage is stored in `usage_events`. Source-system credentials and ingestion belong to the separate
 `valteh-revenue-api`; this console reads normalized events and maps source-scoped external references to durable client
 IDs. See [Operational Event Contract](docs/shared-operational-event-contract.md) and
@@ -188,3 +192,4 @@ callbacks.
 - [Anthropic History Operations](docs/anthropic-history.md)
 - [Operational Event Contract](docs/shared-operational-event-contract.md)
 - [Event Consumption Architecture](docs/event-consumption-architecture.md)
+- [SAREMI Pricing and Future Usage](docs/saremi-pricing-and-usage.md)

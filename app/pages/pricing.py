@@ -20,7 +20,12 @@ from app.domain.display_currency import (
     usd_view_note,
 )
 from app.domain.fx_rates import FxRateUnavailableError
-from app.domain.pricing_simulator import PricingSimulationInput, sensitivity_series, simulate_pricing
+from app.domain.pricing_simulator import (
+    PricingSimulationInput,
+    crossover_documents,
+    sensitivity_series,
+    simulate_pricing,
+)
 from app.utils.currency import format_mxn, format_percent
 
 
@@ -33,17 +38,27 @@ def layout(display_currency: str | None = "MXN"):
         [
             html.H1("Pricing", className="h3"),
             html.P(
-                "Review Valteh's pricing plans, then model revenue, costs, and margin sensitivity.",
+                "Precio por capacidad, no por usuario. Model recurring revenue, document overage, costs, and margin.",
                 className="text-muted",
             ),
             html.Section(
                 [
-                    html.H2("Pricing Plans", className="h5"),
+                    html.H2("SAREMI 2026 Pricing Catalog", className="h5"),
                     html.P(
-                        "Compare the fixed fees, included usage, and unit pricing of each available plan.",
+                        "Capacity-based pricing with unlimited users. Enterprise tiers are informational and "
+                        "require a negotiated contract before assignment.",
                         className="text-muted",
                     ),
-                    data_table("pricing-table", _plan_rows(repo), 10),
+                    html.H3("Platform", className="h6"),
+                    data_table("pricing-platform-table", _plan_rows(repo, "saremi_platform"), 10),
+                    html.H3("API", className="h6 mt-4"),
+                    html.P(
+                        "For organizations that already have a CRM or platform and only need the processing engine.",
+                        className="text-muted",
+                    ),
+                    data_table("pricing-api-table", _plan_rows(repo, "saremi_api"), 10),
+                    html.H3("Plan crossovers", className="h6 mt-4"),
+                    data_table("pricing-crossover-table", _crossover_rows(repo), 5),
                 ],
                 id="pricing-plans-section",
                 className="mb-5",
@@ -74,10 +89,6 @@ def register_callbacks(app) -> None:
         Input("pricing-include-setup", "value"),
         Input("pricing-fixed-costs", "value"),
         Input("pricing-documents", "value"),
-        Input("pricing-validations", "value"),
-        Input("pricing-graph-queries", "value"),
-        Input("pricing-blockchain-transactions", "value"),
-        Input("pricing-folios", "value"),
         Input("pricing-price-multiplier", "value"),
         Input("pricing-cost-multiplier", "value"),
         Input("pricing-target-margin", "value"),
@@ -88,10 +99,6 @@ def register_callbacks(app) -> None:
         include_setup,
         fixed_costs,
         documents,
-        validations,
-        graph_queries,
-        blockchain_transactions,
-        folios,
         price_multiplier,
         cost_multiplier,
         target_margin,
@@ -102,10 +109,10 @@ def register_callbacks(app) -> None:
             "include_setup": include_setup,
             "fixed_costs": fixed_costs,
             "documents": documents,
-            "validations": validations,
-            "graph_queries": graph_queries,
-            "blockchain_transactions": blockchain_transactions,
-            "folios": folios,
+            "validations": 0,
+            "graph_queries": 0,
+            "blockchain_transactions": 0,
+            "folios": 0,
             "price_multiplier": price_multiplier,
             "cost_multiplier": cost_multiplier,
             "target_margin": target_margin,
@@ -132,7 +139,10 @@ def _simulator_controls(repo: SeedRepository, defaults: dict):
                                 ),
                                 dcc.Dropdown(
                                     id="pricing-plan-filter",
-                                    options=[{"label": plan.name, "value": plan.id} for plan in repo.pricing_plans()],
+                                    options=[
+                                        {"label": plan.name, "value": plan.id}
+                                        for plan in repo.pricing_plans(catalog_only=True, assignable_only=True)
+                                    ],
                                     value=defaults["plan_id"],
                                     clearable=False,
                                     persistence=True,
@@ -182,35 +192,6 @@ def _simulator_controls(repo: SeedRepository, defaults: dict):
                             "pricing-documents",
                             defaults["documents"],
                             tooltip="Expected documents processed for this client in one month.",
-                        ),
-                        numeric_input(
-                            "ID validations",
-                            "pricing-validations",
-                            defaults["validations"],
-                            tooltip="Expected ID validation events for this client in one month.",
-                        ),
-                        numeric_input(
-                            "Graph queries",
-                            "pricing-graph-queries",
-                            defaults["graph_queries"],
-                            tooltip="Expected Graphos queries for this client in one month.",
-                        ),
-                        numeric_input(
-                            "Blockchain tx",
-                            "pricing-blockchain-transactions",
-                            defaults["blockchain_transactions"],
-                            tooltip="Expected blockchain audit or registry events for this client in one month.",
-                        ),
-                    ],
-                    className="g-3 mb-3",
-                ),
-                dbc.Row(
-                    [
-                        numeric_input(
-                            "Folios minted",
-                            "pricing-folios",
-                            defaults["folios"],
-                            tooltip="Expected property folios or mints for this client in one month.",
                         ),
                         numeric_input(
                             "Price multiplier",
@@ -291,11 +272,14 @@ def _simulation_content(values: dict, display_currency: str | None = "MXN"):
                     ),
                     dbc.Col(
                         kpi_card(
-                            "Minimum Doc Price",
-                            format_currency(presented(result.minimum_document_price), currency, decimals=2),
-                            "For target unit margin",
-                            tooltip="Minimum price per document needed to reach the selected target unit margin, "
-                            "based on current document cost.",
+                            "Recurring Revenue / Doc",
+                            (
+                                format_currency(presented(result.recurring_revenue_per_document), currency, decimals=2)
+                                if result.recurring_revenue_per_document is not None
+                                else "n/a"
+                            ),
+                            "Monthly fee + overage, excluding setup",
+                            tooltip="Implicit recurring revenue divided by the hypothetical processed documents.",
                         ),
                         md=3,
                     ),
@@ -328,7 +312,7 @@ def _simulation_content(values: dict, display_currency: str | None = "MXN"):
 
 def _simulation_input(values: dict) -> PricingSimulationInput:
     repo = SeedRepository()
-    plan = _plan_by_id(repo, int(_number(values.get("plan_id"), 2)))
+    plan = _plan_by_id(repo, int(_number(values.get("plan_id"), 8)))
     rates = repo.cost_rates()
     include_setup = "include" in (values.get("include_setup") or [])
     return PricingSimulationInput(
@@ -357,7 +341,10 @@ def _default_inputs(repo: SeedRepository, month: str) -> dict:
     client_count = max(len(active_clients), 1)
     usage = repo.usage_for_month(month)
     return {
-        "plan_id": 2,
+        "plan_id": next(
+            (plan.id for plan in repo.pricing_plans(catalog_only=True, assignable_only=True) if plan.featured),
+            7,
+        ),
         "include_setup": ["include"],
         "fixed_costs": repo.monthly_summary(month)["fixed_cost"] / Decimal(client_count),
         "documents": _average_usage(usage, "saremi.document_validation", client_count),
@@ -427,30 +414,35 @@ def _average_usage(usage_events, event_type: str, client_count: int) -> float:
     return round(total / client_count, 2)
 
 
-def _plan_rows(repo: SeedRepository) -> list[dict]:
+def _plan_rows(repo: SeedRepository, service_line: str) -> list[dict]:
     return [
         {
-            "plan": plan.name,
-            "setup_fee": format_mxn(plan.setup_fee),
-            "annual_fee": format_mxn(plan.annual_fee),
-            "monthly_fixed_fee": format_mxn(plan.monthly_fixed_fee),
-            "included_documents": plan.included_documents,
-            "included_validations": plan.included_validations,
-            "included_graph_queries": plan.included_graph_queries,
-            "included_blockchain_transactions": plan.included_blockchain_transactions,
-            "price_per_document": _format_mxn_2(plan.price_per_document),
-            "price_per_validation": _format_mxn_2(plan.price_per_validation),
-            "price_per_graph_query": _format_mxn_2(plan.price_per_graph_query),
-            "price_per_blockchain_transaction": _format_mxn_2(plan.price_per_blockchain_transaction),
-            "price_per_property_mint": _format_mxn_2(plan.price_per_property_mint),
-            "revenue_share_percentage": f"{float(plan.revenue_share_percentage) * 100:.1f}%",
+            "plan": f"{plan.name}{' ★ ' + plan.featured_label if plan.featured else ''}",
+            "status": "Available" if plan.assignable else "Contact sales",
+            "monthly_fee": _format_catalog_money(plan.monthly_fixed_fee),
+            "included_documents": _format_catalog_quantity(plan.included_documents),
+            "overage_per_document": _format_catalog_money(plan.price_per_document, decimals=2),
+            "setup": _setup_label(plan),
+            "users": "Unlimited" if plan.unlimited_users and service_line == "saremi_platform" else "API access",
+            "processing": plan.processing_description or "Custom",
+            "configuration": plan.configuration_description or "Custom",
+            "support": plan.support_description or "Custom",
         }
-        for plan in repo.pricing_plans()
+        for plan in repo.pricing_plans(catalog_only=True, service_line=service_line)
     ]
 
 
 def _plan_by_id(repo: SeedRepository, plan_id: int):
-    return next(plan for plan in repo.pricing_plans() if plan.id == plan_id)
+    plans = repo.pricing_plans(catalog_only=True, assignable_only=True)
+    selected = next((plan for plan in plans if plan.id == plan_id), None)
+    if selected is not None:
+        return selected
+    featured = next((plan for plan in plans if plan.featured), None)
+    if featured is not None:
+        return featured
+    if not plans:
+        raise ValueError("No active assignable pricing plans are available.")
+    return plans[0]
 
 
 def _number(value, default) -> Decimal:
@@ -459,5 +451,39 @@ def _number(value, default) -> Decimal:
     return Decimal(str(value))
 
 
-def _format_mxn_2(value: Decimal | float | int) -> str:
-    return f"${float(value):,.2f} MXN"
+def _format_catalog_money(value: Decimal | float | int | None, *, decimals: int = 0) -> str:
+    if value is None:
+        return "A la medida"
+    return f"${float(value):,.{decimals}f} MXN"
+
+
+def _format_catalog_quantity(value: int | None) -> str:
+    return f"{value:,}" if value is not None else "According to operation"
+
+
+def _setup_label(plan) -> str:
+    if plan.setup_fee is None:
+        return "A la medida"
+    if plan.setup_fee == 0:
+        return "Included / $0" if plan.setup_type == "included" else "Not applicable / $0"
+    minimum = f" (minimum {_format_catalog_money(plan.minimum_setup_fee)})" if plan.minimum_setup_fee else ""
+    return f"{_format_catalog_money(plan.setup_fee)}{minimum}"
+
+
+def _crossover_rows(repo: SeedRepository) -> list[dict]:
+    plans = {plan.plan_code: plan for plan in repo.pricing_plans(catalog_only=True)}
+    pairs = [
+        ("SAREMI_CORE", "SAREMI_SCALE", "Review sustained use near 1,400–1,500"),
+        ("SAREMI_API_1K", "SAREMI_API_2_5K", "Consider the next API tier"),
+        ("SAREMI_API_2_5K", "SAREMI_API_10K", "Subject to infrastructure validation"),
+    ]
+    return [
+        {
+            "from": plans[current].name,
+            "to": plans[next_plan].name,
+            "crossover_documents": crossover_documents(plans[current], plans[next_plan]),
+            "guidance": guidance,
+        }
+        for current, next_plan, guidance in pairs
+        if current in plans and next_plan in plans
+    ]
