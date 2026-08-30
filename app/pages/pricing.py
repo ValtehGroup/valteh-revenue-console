@@ -487,7 +487,7 @@ def _crossover_rows(repo: SeedRepository) -> list[dict]:
     pairs = [
         ("SAREMI_CORE", "SAREMI_SCALE", "Review sustained use near 1,400–1,500"),
         ("SAREMI_API_1K", "SAREMI_API_2_5K", "Consider the next API tier"),
-        ("SAREMI_API_2_5K", "SAREMI_API_10K", "Subject to infrastructure validation"),
+        ("SAREMI_API_2_5K", "SAREMI_API_10K", "Consider the 10K API tier"),
     ]
     return [
         {

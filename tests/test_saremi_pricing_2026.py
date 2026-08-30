@@ -84,12 +84,15 @@ def test_seed_catalog_has_exact_saremi_economics_and_visibility(tmp_path, monkey
     }
     assert plans["SAREMI_ENTERPRISE"].monthly_fixed_fee is None
     assert plans["SAREMI_ENTERPRISE"].included_documents is None
-    assert plans["SAREMI_API_10K"].assignable is False
+    assert plans["SAREMI_API_10K"].status == "active"
+    assert plans["SAREMI_API_10K"].assignable is True
+    assert plans["SAREMI_API_10K"].assignment_requires_approval is False
     assert {plan.plan_code for plan in repo.pricing_plans(catalog_only=True, assignable_only=True)} == {
         "SAREMI_CORE",
         "SAREMI_SCALE",
         "SAREMI_API_1K",
         "SAREMI_API_2_5K",
+        "SAREMI_API_10K",
     }
     assert not {"LEGACY_SIGEN_GO", "LEGACY_SIGEN_PLUS", "LEGACY_SIGEN_PRO"} & {
         plan.plan_code for plan in repo.pricing_plans(catalog_only=True)
