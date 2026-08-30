@@ -86,12 +86,20 @@ def _dashboard_content(month: str, display_currency: str | None = "MXN"):
         (amount.amount for amount, _ in presentation["translated_costs"] if amount.cost_type == "fixed"),
         Decimal("0"),
     )
+    usage_available = any(
+        (subscription := repo.active_subscription_for_client_month(client.id, month)) is not None
+        and subscription.usage_data_status == "available"
+        for client in repo.active_clients(month)
+    )
     if unit_price <= 0:
         break_even_usage = None
         break_even_note = "No active plan charges per document"
     elif unit_price <= unit_variable_cost:
         break_even_usage = None
         break_even_note = "Unit price does not cover variable cost"
+    elif not usage_available:
+        break_even_usage = None
+        break_even_note = "Usage pending integration"
     else:
         break_even_usage = calculate_break_even_usage(fixed_cost_mxn, unit_price, unit_variable_cost)
         display_unit_price = unit_price
@@ -330,27 +338,28 @@ def _monthly_revenue_card_content(
     presentation = repo.monthly_presentation(month, currency)
     split = presentation["revenue_by_type"]
     split["total"] = presentation["summary"]["revenue"]
-    split.setdefault("subscription", Decimal("0"))
-    split.setdefault("usage", Decimal("0"))
+    rows = [
+        ("Platform recurring", split.get("platform_subscription", Decimal("0"))),
+        ("API recurring", split.get("api_subscription", Decimal("0"))),
+        ("Document overage", split.get("document_overage", Decimal("0"))),
+        ("Setup", split.get("setup_implementation", Decimal("0"))),
+        ("Pilot one-time", split.get("pilot_one_time", Decimal("0"))),
+    ]
     if show_split:
         return [
             html.Div("Monthly Revenue Split", className="kpi-label"),
             html.Div(
                 [
-                    html.Div(
-                        [
-                            html.Span("Subscription (fixed)", className="text-muted"),
-                            html.Strong(format_currency(split["subscription"], currency)),
-                        ],
-                        className="revenue-split-row",
-                    ),
-                    html.Div(
-                        [
-                            html.Span("Usage (variable)", className="text-muted"),
-                            html.Strong(format_currency(split["usage"], currency)),
-                        ],
-                        className="revenue-split-row",
-                    ),
+                    *[
+                        html.Div(
+                            [
+                                html.Span(label, className="text-muted"),
+                                html.Strong(format_currency(value, currency)),
+                            ],
+                            className="revenue-split-row",
+                        )
+                        for label, value in rows
+                    ],
                 ],
                 className="mb-1",
             ),
@@ -395,11 +404,15 @@ def _format_mxn_thousands(value: Decimal) -> str:
 def _average_document_price(repo: SeedRepository, month: str) -> Decimal:
     active_plans = [repo.active_plan_for_client_month(client.id, month) for client in repo.active_clients(month)]
     document_prices = [
-        Decimal(str(plan.price_per_document)) for plan in active_plans if plan and plan.price_per_document > 0
+        Decimal(str(plan.price_per_document))
+        for plan in active_plans
+        if plan and plan.price_per_document is not None and plan.price_per_document > 0
     ]
     if not document_prices:
         document_prices = [
-            Decimal(str(plan.price_per_document)) for plan in repo.pricing_plans() if plan.price_per_document > 0
+            Decimal(str(plan.price_per_document))
+            for plan in repo.pricing_plans()
+            if plan.price_per_document is not None and plan.price_per_document > 0
         ]
     if not document_prices:
         return Decimal("0")

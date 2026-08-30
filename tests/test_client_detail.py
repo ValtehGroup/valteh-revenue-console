@@ -22,8 +22,9 @@ def test_client_detail_defaults_to_client_active_in_latest_month(monkeypatch) ->
 def test_inactive_client_detail_uses_recorded_history() -> None:
     repo = SeedRepository()
 
-    assert _latest_client_month(repo, 2, repo.available_months()) == "2026-06"
-    assert len(repo.usage_history_for_client_month(2, "2026-06")) == 5
+    assert _latest_client_month(repo, 2, repo.available_months()) == repo.available_months()[-1]
+    assert repo.usage_history_for_client_month(2, "2026-06") == []
+    assert len([event for event in repo.usage_events() if event.client_id == 2]) == 5
     assert repo.subscription_for_client_month(2, "2026-06") is not None
     assert _client_detail_content(2, "2026-06") is not None
 

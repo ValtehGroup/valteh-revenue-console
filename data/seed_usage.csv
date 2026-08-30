@@ -1,11 +1,11 @@
-id,client_id,service_code,event_type,quantity,unit,event_timestamp,source_system,external_reference_id,metadata_json
-15,2,saremi,saremi.document_validation,420,document,2026-06-14T10:00:00,saremi_pilot,qro2-jun-docs,"{""basis"":""30 registry matters x 2 people x 7 docs/person""}"
-16,2,saremi,saremi.ine_validation,60,validation,2026-06-14T10:15:00,saremi_pilot,qro2-jun-ine,"{""basis"":""30 registry matters x 2 people""}"
-17,2,graphos,graphos.query,80,query,2026-06-15T11:00:00,graphos_pilot,qro2-jun-graph,"{""basis"":""Early-access visualization checks""}"
-18,2,graphos,graphos.case_analysis,4,case,2026-06-15T11:30:00,graphos_pilot,qro2-jun-cases,"{""basis"":""Selected case-level graph checks""}"
-19,2,blockchain,blockchain.asiento_registration,30,event,2026-06-16T12:00:00,blockchain_pilot,qro2-jun-chain,"{""basis"":""Internal audit anchors only; not production BaaS""}"
-20,3,saremi,saremi.document_validation,252,document,2026-06-18T10:00:00,saremi_pilot,celaya-jun-docs,"{""basis"":""18 registry matters x 2 people x 7 docs/person""}"
-21,3,saremi,saremi.ine_validation,36,validation,2026-06-18T10:15:00,saremi_pilot,celaya-jun-ine,"{""basis"":""18 registry matters x 2 people""}"
-22,3,graphos,graphos.query,45,query,2026-06-19T11:00:00,graphos_pilot,celaya-jun-graph,"{""basis"":""Early-access visualization checks""}"
-23,3,graphos,graphos.case_analysis,2,case,2026-06-19T11:30:00,graphos_pilot,celaya-jun-cases,"{""basis"":""Selected case-level graph checks""}"
-24,3,blockchain,blockchain.asiento_registration,18,event,2026-06-20T12:00:00,blockchain_pilot,celaya-jun-chain,"{""basis"":""Internal audit anchors only; not production BaaS""}"
+id,client_id,service_code,event_type,quantity,unit,event_timestamp,source_system,external_reference_id,metadata_json,data_origin,environment,is_billable,billable_unit_id
+15,2,saremi,saremi.document_validation,420,document,2026-06-14T10:00:00,saremi_pilot,qro2-jun-docs,"{""basis"":""30 registry matters x 2 people x 7 docs/person""}",demo,sandbox,FALSE,
+16,2,saremi,saremi.ine_validation,60,validation,2026-06-14T10:15:00,saremi_pilot,qro2-jun-ine,"{""basis"":""30 registry matters x 2 people""}",demo,sandbox,FALSE,
+17,2,graphos,graphos.query,80,query,2026-06-15T11:00:00,graphos_pilot,qro2-jun-graph,"{""basis"":""Early-access visualization checks""}",demo,sandbox,FALSE,
+18,2,graphos,graphos.case_analysis,4,case,2026-06-15T11:30:00,graphos_pilot,qro2-jun-cases,"{""basis"":""Selected case-level graph checks""}",demo,sandbox,FALSE,
+19,2,blockchain,blockchain.asiento_registration,30,event,2026-06-16T12:00:00,blockchain_pilot,qro2-jun-chain,"{""basis"":""Internal audit anchors only; not production BaaS""}",demo,sandbox,FALSE,
+20,3,saremi,saremi.document_validation,252,document,2026-06-18T10:00:00,saremi_pilot,celaya-jun-docs,"{""basis"":""18 registry matters x 2 people x 7 docs/person""}",demo,sandbox,FALSE,
+21,3,saremi,saremi.ine_validation,36,validation,2026-06-18T10:15:00,saremi_pilot,celaya-jun-ine,"{""basis"":""18 registry matters x 2 people""}",demo,sandbox,FALSE,
+22,3,graphos,graphos.query,45,query,2026-06-19T11:00:00,graphos_pilot,celaya-jun-graph,"{""basis"":""Early-access visualization checks""}",demo,sandbox,FALSE,
+23,3,graphos,graphos.case_analysis,2,case,2026-06-19T11:30:00,graphos_pilot,celaya-jun-cases,"{""basis"":""Selected case-level graph checks""}",demo,sandbox,FALSE,
+24,3,blockchain,blockchain.asiento_registration,18,event,2026-06-20T12:00:00,blockchain_pilot,celaya-jun-chain,"{""basis"":""Internal audit anchors only; not production BaaS""}",demo,sandbox,FALSE,

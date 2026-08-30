@@ -1,4 +1,4 @@
-﻿id,client_id,pricing_plan_id,start_date,end_date,status,notes
-1,1,5,01/08/2026,,active,Notaria 38 ad-hoc pilot agreed at MXN 5000 with 500 included document validations.
-2,2,2,01/06/2026,01/07/2027,inactive,Test Queretaro notary on SIGEN Go. Fees come from seed_pricing_plans.csv.
-3,3,2,01/06/2026,01/07/2027,inactive,Test Celaya notary on SIGEN Go. Fees come from seed_pricing_plans.csv.
+id,client_id,pricing_plan_id,start_date,end_date,status,notes,contracted_monthly_fee,contracted_annual_fee,contracted_included_documents,contracted_overage_price,contracted_setup_fee,setup_disposition,contracted_one_time_fee,currency,billing_cycle_anchor,minimum_term_months,renewal_review_date,discount_percentage,discount_reason,approved_by,channel_partner_code,channel_commission_pct,data_origin,usage_data_status
+1,1,5,01/08/2026,,active,Notaría 38 ad-hoc pilot agreed at MXN 5000 with 500 included document validations.,0,0,500,0,0,included,5000,MXN,01/08/2026,0,,0,,,,0,production,pending
+2,2,7,01/06/2026,01/07/2027,inactive,Demo subscription retained only for dashboard testing.,6999,0,1000,9,9999,charged,0,MXN,01/06/2026,0,,0,,,,0,demo,demo
+3,3,7,01/06/2026,01/07/2027,inactive,Demo subscription retained only for dashboard testing.,6999,0,1000,9,9999,charged,0,MXN,01/06/2026,0,,0,,,,0,demo,demo

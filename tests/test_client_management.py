@@ -78,12 +78,16 @@ def test_client_seed_is_idempotent(tmp_path: Path) -> None:
         ad_hoc_plan = session.get(PricingPlanORM, 5)
     assert ad_hoc_plan.name == "Notaría 38 Pilot (Ad hoc)"
     assert ad_hoc_plan.dedicated_client_id == 1
-    assert ad_hoc_plan.setup_fee == 5000
+    assert ad_hoc_plan.setup_fee == 0
+    assert ad_hoc_plan.one_time_fee == 5000
     assert ad_hoc_plan.included_documents == 500
     with factory() as session:
         notaria_subscription = session.scalar(select(ClientSubscriptionORM).where(ClientSubscriptionORM.client_id == 1))
     assert notaria_subscription.pricing_plan_id == 5
     assert notaria_subscription.start_date == date(2026, 8, 1)
+    assert notaria_subscription.contracted_one_time_fee == 5000
+    assert notaria_subscription.contracted_included_documents == 500
+    assert notaria_subscription.usage_data_status == "pending"
 
 
 def test_create_generates_public_code_and_timestamps(repository) -> None:
@@ -414,9 +418,20 @@ def test_client_migration_backfills_codes_without_changing_primary_keys(tmp_path
 
     with engine.connect() as connection:
         rows = connection.execute(sa.text("SELECT id, client_code FROM clients ORDER BY id")).all()
+        saremi_plans = connection.execute(
+            sa.text(
+                "SELECT plan_code, service_line, assignable FROM pricing_plans " "WHERE id BETWEEN 7 AND 13 ORDER BY id"
+            )
+        ).all()
     assert rows == [(1, "client_0001"), (2, "test_0002"), (3, "test_0003")]
+    assert saremi_plans[0] == ("SAREMI_CORE", "saremi_platform", 1)
+    assert saremi_plans[1] == ("SAREMI_SCALE", "saremi_platform", 1)
+    assert saremi_plans[2] == ("SAREMI_ENTERPRISE", "saremi_platform", 0)
+    assert saremi_plans[6] == ("SAREMI_API_ENTERPRISE", "saremi_api", 0)
     checks = {constraint["name"] for constraint in sa.inspect(engine).get_check_constraints("clients")}
     assert {"ck_clients_status", "ck_clients_dates"} <= checks
+    pricing_checks = {constraint["name"] for constraint in sa.inspect(engine).get_check_constraints("pricing_plans")}
+    assert "ck_pricing_plans_non_negative" in pricing_checks
 
 
 def test_client_code_format_grows_beyond_four_digits(repository) -> None:
@@ -436,6 +451,72 @@ def test_client_code_format_grows_beyond_four_digits(repository) -> None:
             )
         )
     assert ClientRepository(factory).get_client(10000).client_code == "client_10000"
+
+
+def test_pricing_migration_refuses_unexpected_real_legacy_agreement(tmp_path: Path) -> None:
+    database_path = tmp_path / "unexpected-legacy.db"
+    config = Config(str(BASE_DIR / "alembic.ini"))
+    config.set_main_option("sqlalchemy.url", f"sqlite:///{database_path.as_posix()}")
+    command.upgrade(config, "20260829_11")
+    engine = create_engine(f"sqlite:///{database_path.as_posix()}")
+    with engine.begin() as connection:
+        connection.execute(
+            sa.text(
+                "INSERT INTO clients "
+                "(id, client_code, name, client_type, status, start_date, created_at, updated_at) "
+                "VALUES (99, 'client_0099', 'Unexpected real client', 'notary', 'active', "
+                "'2026-01-01', '2026-01-01', '2026-01-01')"
+            )
+        )
+        connection.execute(
+            sa.text(
+                "INSERT INTO pricing_plans "
+                "(id, name, setup_fee, annual_fee, monthly_fixed_fee, included_documents, "
+                "included_validations, included_graph_queries, included_blockchain_transactions, "
+                "price_per_document, price_per_validation, price_per_graph_query, "
+                "price_per_blockchain_transaction, price_per_property_mint, revenue_share_percentage) "
+                "VALUES (2, 'Legacy Go', 10000, 0, 5000, 100, 0, 0, 0, 5, 0, 0, 0, 0, 0)"
+            )
+        )
+        connection.execute(
+            sa.text(
+                "INSERT INTO client_subscriptions "
+                "(id, client_id, pricing_plan_id, start_date, status) VALUES (99, 99, 2, '2026-01-01', 'active')"
+            )
+        )
+
+    with pytest.raises(RuntimeError, match="manual review required"):
+        command.upgrade(config, "head")
+
+
+def test_pricing_downgrade_refuses_production_agreements_on_new_plans(tmp_path: Path) -> None:
+    database_path = tmp_path / "safe-downgrade.db"
+    config = Config(str(BASE_DIR / "alembic.ini"))
+    config.set_main_option("sqlalchemy.url", f"sqlite:///{database_path.as_posix()}")
+    command.upgrade(config, "head")
+    engine = create_engine(f"sqlite:///{database_path.as_posix()}")
+    with engine.begin() as connection:
+        connection.execute(
+            sa.text(
+                "INSERT INTO clients "
+                "(id, client_code, name, client_type, status, start_date, created_at, updated_at) "
+                "VALUES (99, 'client_0099', 'New real client', 'notary', 'active', "
+                "'2026-09-01', '2026-09-01', '2026-09-01')"
+            )
+        )
+        connection.execute(
+            sa.text(
+                "INSERT INTO client_subscriptions "
+                "(id, client_id, pricing_plan_id, start_date, status, contracted_monthly_fee, "
+                "contracted_included_documents, contracted_overage_price, contracted_setup_fee, "
+                "setup_disposition, contracted_one_time_fee, data_origin, usage_data_status) "
+                "VALUES (99, 99, 7, '2026-09-01', 'active', 6999, 1000, 9, 9999, "
+                "'charged', 0, 'production', 'pending')"
+            )
+        )
+
+    with pytest.raises(RuntimeError, match="Cannot downgrade"):
+        command.downgrade(config, "20260829_11")
 
 
 def test_client_callbacks_register_without_delete_or_duplicate_outputs() -> None:

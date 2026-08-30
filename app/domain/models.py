@@ -45,20 +45,40 @@ class Service(BaseModel):
 class PricingPlan(BaseModel):
     id: int
     name: str
+    plan_code: str | None = None
+    version: int = 1
+    service_line: str = "legacy_sigen"
+    status: Literal["active", "informational", "legacy", "retired"] = "active"
+    pricing_model: Literal["fixed", "custom", "one_time"] = "fixed"
+    catalog_visible: bool = True
+    assignable: bool = True
+    assignment_requires_approval: bool = False
+    featured: bool = False
+    featured_label: str | None = None
     dedicated_client_id: int | None = None
-    setup_fee: Decimal = Decimal("0")
+    setup_fee: Decimal | None = Decimal("0")
+    minimum_setup_fee: Decimal | None = Decimal("0")
+    setup_type: str | None = None
+    one_time_fee: Decimal | None = Decimal("0")
     annual_fee: Decimal = Decimal("0")
-    monthly_fixed_fee: Decimal = Decimal("0")
-    included_documents: int = 0
+    monthly_fixed_fee: Decimal | None = Decimal("0")
+    included_documents: int | None = 0
     included_validations: int = 0
     included_graph_queries: int = 0
     included_blockchain_transactions: int = 0
-    price_per_document: Decimal = Decimal("0")
+    price_per_document: Decimal | None = Decimal("0")
     price_per_validation: Decimal = Decimal("0")
     price_per_graph_query: Decimal = Decimal("0")
     price_per_blockchain_transaction: Decimal = Decimal("0")
     price_per_property_mint: Decimal = Decimal("0")
     revenue_share_percentage: Decimal = Decimal("0")
+    unlimited_users: bool = False
+    processing_description: str | None = None
+    configuration_description: str | None = None
+    support_description: str | None = None
+    currency: str = "MXN"
+    effective_from: date | None = None
+    effective_to: date | None = None
 
 
 class ClientSubscription(BaseModel):
@@ -69,6 +89,26 @@ class ClientSubscription(BaseModel):
     end_date: date | None = None
     status: str = "active"
     notes: str | None = None
+    contracted_monthly_fee: Decimal | None = None
+    contracted_annual_fee: Decimal | None = None
+    contracted_included_documents: int | None = None
+    contracted_overage_price: Decimal | None = None
+    contracted_setup_fee: Decimal | None = None
+    setup_disposition: Literal["charged", "included", "waived", "not_applicable"] = "not_applicable"
+    contracted_one_time_fee: Decimal | None = None
+    currency: str = "MXN"
+    billing_cycle_anchor: date | None = None
+    minimum_term_months: int = 0
+    renewal_review_date: date | None = None
+    discount_percentage: Decimal = Decimal("0")
+    discount_reason: str | None = None
+    approved_by: str | None = None
+    channel_partner_code: str | None = None
+    channel_commission_pct: Decimal = Decimal("0")
+    data_origin: Literal["production", "demo"] = "production"
+    usage_data_status: Literal["pending", "available", "demo"] = "pending"
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
 
 class UsageEvent(BaseModel):
@@ -83,6 +123,10 @@ class UsageEvent(BaseModel):
     external_reference_id: str | None = None
     metadata_json: dict[str, Any] = Field(default_factory=dict)
     imported_event_id: int | None = None
+    data_origin: Literal["production", "demo"] = "production"
+    environment: Literal["production", "staging", "development", "sandbox", "internal"] = "production"
+    is_billable: bool = True
+    billable_unit_id: str | None = None
 
 
 class CostItem(BaseModel):

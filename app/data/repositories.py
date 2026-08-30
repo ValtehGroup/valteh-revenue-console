@@ -131,6 +131,9 @@ class SeedRepository:
         *,
         client_id: int | None = None,
         reusable_only: bool = False,
+        catalog_only: bool = False,
+        assignable_only: bool = False,
+        service_line: str | None = None,
     ) -> list[PricingPlan]:
         from app.data.database import SessionLocal
         from app.data.schemas import PricingPlanORM
@@ -138,7 +141,11 @@ class SeedRepository:
         with SessionLocal() as session:
             statement = select(PricingPlanORM).order_by(PricingPlanORM.id)
             if reusable_only:
-                statement = statement.where(PricingPlanORM.dedicated_client_id.is_(None))
+                statement = statement.where(
+                    PricingPlanORM.dedicated_client_id.is_(None),
+                    PricingPlanORM.assignable.is_(True),
+                    PricingPlanORM.status == "active",
+                )
             elif client_id is not None:
                 statement = statement.where(
                     or_(
@@ -146,6 +153,12 @@ class SeedRepository:
                         PricingPlanORM.dedicated_client_id == client_id,
                     )
                 )
+            if catalog_only:
+                statement = statement.where(PricingPlanORM.catalog_visible.is_(True))
+            if assignable_only:
+                statement = statement.where(PricingPlanORM.assignable.is_(True), PricingPlanORM.status == "active")
+            if service_line is not None:
+                statement = statement.where(PricingPlanORM.service_line == service_line)
             rows = session.scalars(statement).all()
             return [
                 PricingPlan.model_validate(
@@ -316,19 +329,27 @@ class SeedRepository:
         return [
             event
             for event in self.usage_events()
-            if event.client_id in active_client_ids and event.event_timestamp.strftime("%Y-%m") == month
+            if event.client_id in active_client_ids
+            and event.event_timestamp.strftime("%Y-%m") == month
+            and event.data_origin == "production"
+            and event.environment == "production"
+            and event.is_billable
         ]
 
     def usage_for_client_month(self, client_id: int, month: str) -> list[UsageEvent]:
         return [event for event in self.usage_for_month(month) if event.client_id == client_id]
 
     def usage_history_for_client_month(self, client_id: int, month: str) -> list[UsageEvent]:
-        """Return recorded usage without applying the current active-client filter."""
+        """Return production billable usage without applying the current active-client filter."""
 
         return [
             event
             for event in self.usage_events()
-            if event.client_id == client_id and event.event_timestamp.strftime("%Y-%m") == month
+            if event.client_id == client_id
+            and event.event_timestamp.strftime("%Y-%m") == month
+            and event.data_origin == "production"
+            and event.environment == "production"
+            and event.is_billable
         ]
 
     def cost_rates(self, as_of: date | None = None) -> dict[str, Decimal]:
@@ -394,7 +415,11 @@ class SeedRepository:
         usage = self.usage_for_client_month(client_id, month)
         period_month = pd.Timestamp(f"{month}-01").date()
         subscription_revenue = calculate_subscription_revenue(plan, subscription, period_month)
-        usage_revenue = calculate_usage_revenue(usage, plan)
+        usage_revenue = (
+            calculate_usage_revenue(usage, plan, subscription)
+            if subscription.usage_data_status == "available"
+            else Decimal("0")
+        )
         return {
             "subscription": subscription_revenue,
             "usage": usage_revenue,
@@ -473,7 +498,7 @@ class SeedRepository:
             "revenue_by_service": _sum_presented(translated_revenue, lambda amount: amount.service_line),
             "revenue_by_type": _sum_presented(
                 translated_revenue,
-                lambda amount: "usage" if amount.revenue_type == "usage" else "subscription",
+                lambda amount: amount.revenue_type,
             ),
             "revenue_by_client": _sum_presented(translated_revenue, lambda amount: amount.client_id),
             "cost_by_service": _sum_presented(translated_costs, lambda amount: amount.service_line),
@@ -589,23 +614,8 @@ class SeedRepository:
 
     def revenue_by_service(self, month: str) -> dict[str, Decimal]:
         totals: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
-        for client in self.active_clients(month):
-            plan = self.active_plan_for_client_month(client.id, month)
-            subscription = self.active_subscription_for_client_month(client.id, month)
-            if plan is None or subscription is None:
-                continue
-            totals["SIGEN"] += calculate_subscription_revenue(plan, subscription, pd.Timestamp(f"{month}-01").date())
-        for client in self.active_clients(month):
-            plan = self.active_plan_for_client_month(client.id, month)
-            if plan is None:
-                continue
-            for event in self.usage_for_client_month(client.id, month):
-                if event.event_type.startswith("saremi"):
-                    totals["SAREMI"] += _event_revenue(event.event_type, event.quantity, plan)
-                elif event.event_type.startswith("graphos"):
-                    totals["Graphos"] += _event_revenue(event.event_type, event.quantity, plan)
-                elif event.event_type.startswith("blockchain"):
-                    totals["Blockchain / BaaS"] += _event_revenue(event.event_type, event.quantity, plan)
+        for amount in self.monthly_revenue_amounts(month):
+            totals[amount.service_line] += amount.amount_mxn
         return dict(totals)
 
     def cost_by_service(self, month: str) -> dict[str, Decimal]:

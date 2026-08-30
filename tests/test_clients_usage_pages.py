@@ -1,10 +1,12 @@
 from datetime import UTC, date, datetime
 from decimal import Decimal
 
+import pytest
+
 from app.data.repositories import SeedRepository
-from app.domain.models import Client, ClientProfitability, UsageEvent
+from app.domain.models import Client, ClientProfitability, ClientSubscription, PricingPlan, UsageEvent
 from app.pages.client_detail import _client_detail_content
-from app.pages.clients import _client_id_from_active_cell, _client_rows, _client_table_styles
+from app.pages.clients import _client_alert, _client_id_from_active_cell, _client_rows, _client_table_styles
 from app.pages.usage import _usage_rows
 
 
@@ -23,9 +25,7 @@ def test_client_status_cells_use_lowercase_saremi_status_colors() -> None:
     styles = _client_table_styles(None)
 
     active = next(style for style in styles if style["if"].get("filter_query") == '{client_status} = "active"')
-    inactive = next(
-        style for style in styles if style["if"].get("filter_query") == '{client_status} = "inactive"'
-    )
+    inactive = next(style for style in styles if style["if"].get("filter_query") == '{client_status} = "inactive"')
 
     assert all(row["client_status"] == row["client_status"].lower() for row in rows)
     assert active["color"] == "var(--color-status-active)"
@@ -102,6 +102,43 @@ def test_active_client_without_subscription_is_not_labeled_inactive() -> None:
     assert row["pricing_plan"] == "No active plan"
     assert "active_services" not in row
     assert row["alerts"] == "No active plan"
+
+
+@pytest.mark.parametrize(
+    ("documents", "expected"),
+    [
+        (700, "70%+ utilization"),
+        (850, "85%+ utilization"),
+        (1000, "100%+ utilization"),
+        (1200, "120%+ utilization"),
+        (1500, "150%+ utilization"),
+        (2000, "200%+ utilization"),
+    ],
+)
+def test_real_usage_alert_thresholds(documents, expected) -> None:
+    subscription = ClientSubscription(
+        id=1,
+        client_id=1,
+        pricing_plan_id=7,
+        start_date=date(2026, 9, 1),
+        contracted_included_documents=1000,
+        usage_data_status="available",
+    )
+    usage = [
+        UsageEvent(
+            id=1,
+            client_id=1,
+            service_code="saremi",
+            event_type="saremi.processed_document",
+            quantity=documents,
+            unit="document",
+            event_timestamp=datetime(2026, 9, 15),
+            source_system="saremi",
+        )
+    ]
+
+    alert = _client_alert("active", PricingPlan(id=7, name="Core"), subscription, usage, Decimal("1"))
+    assert expected in alert
 
 
 def test_usage_name_is_resolved_at_read_time() -> None:

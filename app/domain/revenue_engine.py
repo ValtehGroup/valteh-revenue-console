@@ -25,6 +25,7 @@ class RevenueAmount:
 
 
 EVENT_PRICE_FIELDS = {
+    "saremi.processed_document": "price_per_document",
     "saremi.document_validation": "price_per_document",
     "saremi.ine_validation": "price_per_validation",
     "graphos.query": "price_per_graph_query",
@@ -44,7 +45,7 @@ def calculate_client_revenue(
     """Calculate fixed subscription revenue plus usage revenue for one client and period."""
 
     return calculate_subscription_revenue(pricing_plan, subscription, period_month) + calculate_usage_revenue(
-        client_usage, pricing_plan
+        client_usage, pricing_plan, subscription
     )
 
 
@@ -55,18 +56,25 @@ def calculate_subscription_revenue(
 ) -> Decimal:
     """Calculate setup, annual, and monthly fixed fees for one client and period."""
 
-    revenue = money(pricing_plan.monthly_fixed_fee)
+    revenue = money(_contract_value(subscription, "contracted_monthly_fee", pricing_plan.monthly_fixed_fee))
     if subscription and period_month:
         revenue += _setup_fee_for_month(pricing_plan, subscription, period_month)
         revenue += _annual_fee_for_month(pricing_plan, subscription, period_month)
+        revenue += _one_time_fee_for_month(pricing_plan, subscription, period_month)
     return revenue
 
 
-def calculate_usage_revenue(client_usage: Iterable[UsageEvent], pricing_plan: PricingPlan) -> Decimal:
+def calculate_usage_revenue(
+    client_usage: Iterable[UsageEvent],
+    pricing_plan: PricingPlan,
+    subscription: ClientSubscription | None = None,
+) -> Decimal:
     """Calculate billable usage revenue after included quantities."""
 
+    if subscription is not None and not _usage_is_available(subscription):
+        return Decimal("0")
     return sum(
-        (amount.amount_mxn for amount in usage_revenue_amounts(client_usage, pricing_plan)),
+        (amount.amount_mxn for amount in usage_revenue_amounts(client_usage, pricing_plan, subscription)),
         Decimal("0"),
     )
 
@@ -82,36 +90,37 @@ def revenue_amounts(
     amounts: list[RevenueAmount] = []
     if subscription is not None and period_month is not None:
         monthly_date, provisional = monthly_revenue_recognition_date(period_month, today=today)
-        monthly_fee = money(pricing_plan.monthly_fixed_fee)
+        monthly_fee = money(_contract_value(subscription, "contracted_monthly_fee", pricing_plan.monthly_fixed_fee))
         if monthly_fee:
             amounts.append(
                 RevenueAmount(
                     subscription.client_id,
-                    "SIGEN",
-                    "monthly_subscription",
+                    _plan_service_line(pricing_plan),
+                    _subscription_revenue_type(pricing_plan),
                     monthly_fee,
                     monthly_date,
                     monthly_fee,
                     provisional_fx=provisional,
                 )
             )
-        setup_fee = money(pricing_plan.setup_fee)
+        setup_fee = money(_contract_value(subscription, "contracted_setup_fee", pricing_plan.setup_fee))
         if (
             setup_fee
+            and (subscription.setup_disposition == "charged" or subscription.contracted_setup_fee is None)
             and subscription.start_date.year == period_month.year
             and subscription.start_date.month == period_month.month
         ):
             amounts.append(
                 RevenueAmount(
                     subscription.client_id,
-                    "SIGEN",
-                    "setup",
+                    _plan_service_line(pricing_plan),
+                    "setup_implementation" if pricing_plan.service_line != "legacy_sigen" else "setup",
                     setup_fee,
                     subscription.start_date,
                     setup_fee,
                 )
             )
-        annual_fee = money(pricing_plan.annual_fee)
+        annual_fee = money(_contract_value(subscription, "contracted_annual_fee", pricing_plan.annual_fee))
         if (
             annual_fee
             and period_month >= subscription.start_date
@@ -125,11 +134,27 @@ def revenue_amounts(
             amounts.append(
                 RevenueAmount(
                     subscription.client_id,
-                    "SIGEN",
+                    _plan_service_line(pricing_plan),
                     "annual",
                     annual_fee,
                     anniversary,
                     annual_fee,
+                )
+            )
+        one_time_fee = money(_contract_value(subscription, "contracted_one_time_fee", pricing_plan.one_time_fee))
+        if (
+            one_time_fee
+            and subscription.start_date.year == period_month.year
+            and subscription.start_date.month == period_month.month
+        ):
+            amounts.append(
+                RevenueAmount(
+                    subscription.client_id,
+                    _plan_service_line(pricing_plan),
+                    "pilot_one_time",
+                    one_time_fee,
+                    subscription.start_date,
+                    one_time_fee,
                 )
             )
     elif period_month is not None:
@@ -139,24 +164,32 @@ def revenue_amounts(
             amounts.append(
                 RevenueAmount(
                     0,
-                    "SIGEN",
-                    "monthly_subscription",
+                    _plan_service_line(pricing_plan),
+                    _subscription_revenue_type(pricing_plan),
                     monthly_fee,
                     monthly_date,
                     monthly_fee,
                     provisional_fx=provisional,
                 )
             )
-    return amounts + usage_revenue_amounts(client_usage, pricing_plan)
+    if subscription is not None and not _usage_is_available(subscription):
+        return amounts
+    return amounts + usage_revenue_amounts(client_usage, pricing_plan, subscription)
 
 
 def usage_revenue_amounts(
     client_usage: Iterable[UsageEvent],
     pricing_plan: PricingPlan,
+    subscription: ClientSubscription | None = None,
 ) -> list[RevenueAmount]:
     amounts: list[RevenueAmount] = []
+    seen_billable_units: set[str] = set()
     included_remaining = {
-        "saremi.document_validation": pricing_plan.included_documents,
+        "saremi_document": (
+            subscription.contracted_included_documents
+            if subscription is not None and subscription.contracted_included_documents is not None
+            else pricing_plan.included_documents or 0
+        ),
         "saremi.ine_validation": pricing_plan.included_validations,
         "graphos.query": pricing_plan.included_graph_queries,
         "graphos.case_analysis": pricing_plan.included_graph_queries,
@@ -164,19 +197,46 @@ def usage_revenue_amounts(
         "blockchain.certificate_issued": pricing_plan.included_blockchain_transactions,
     }
     for event in client_usage:
+        if event.data_origin != "production" or event.environment != "production" or not event.is_billable:
+            continue
+        if event.billable_unit_id is not None:
+            if event.billable_unit_id in seen_billable_units:
+                continue
+            seen_billable_units.add(event.billable_unit_id)
         price_field = EVENT_PRICE_FIELDS.get(event.event_type)
         if not price_field:
             continue
-        included = Decimal(str(included_remaining.get(event.event_type, 0)))
+        bucket = (
+            "saremi_document"
+            if event.event_type in {"saremi.processed_document", "saremi.document_validation"}
+            else event.event_type
+        )
+        included = Decimal(str(included_remaining.get(bucket, 0)))
         billable_quantity = max(money(event.quantity) - included, Decimal("0"))
-        included_remaining[event.event_type] = max(int(included - money(event.quantity)), 0)
-        revenue = billable_quantity * money(getattr(pricing_plan, price_field))
+        included_remaining[bucket] = max(int(included - money(event.quantity)), 0)
+        unit_price = (
+            subscription.contracted_overage_price
+            if subscription is not None
+            and subscription.contracted_overage_price is not None
+            and bucket == "saremi_document"
+            else getattr(pricing_plan, price_field)
+        )
+        revenue = billable_quantity * money(unit_price)
         if revenue:
             amounts.append(
                 RevenueAmount(
                     event.client_id,
-                    _service_line(event.event_type),
-                    "usage",
+                    (
+                        _plan_service_line(pricing_plan)
+                        if bucket == "saremi_document"
+                        else _service_line(event.event_type)
+                    ),
+                    (
+                        "document_overage"
+                        if bucket == "saremi_document"
+                        and pricing_plan.service_line in {"saremi_platform", "saremi_api", "pilot"}
+                        else "usage"
+                    ),
                     revenue,
                     event.event_timestamp.date(),
                     revenue,
@@ -209,13 +269,47 @@ def _service_line(event_type: str) -> str:
     return "Other"
 
 
+def _plan_service_line(pricing_plan: PricingPlan) -> str:
+    return {
+        "saremi_platform": "SAREMI Platform",
+        "saremi_api": "SAREMI API",
+        "pilot": "SAREMI Pilot",
+        "legacy_sigen": "SIGEN",
+    }.get(pricing_plan.service_line, pricing_plan.service_line)
+
+
+def _subscription_revenue_type(pricing_plan: PricingPlan) -> str:
+    return {
+        "saremi_platform": "platform_subscription",
+        "saremi_api": "api_subscription",
+    }.get(pricing_plan.service_line, "monthly_subscription")
+
+
+def _usage_is_available(subscription: ClientSubscription) -> bool:
+    if subscription.usage_data_status == "available":
+        return True
+    return (
+        subscription.contracted_monthly_fee is None
+        and subscription.contracted_included_documents is None
+        and subscription.contracted_overage_price is None
+    )
+
+
 def _setup_fee_for_month(
     pricing_plan: PricingPlan,
     subscription: ClientSubscription,
     period_month: date,
 ) -> Decimal:
-    if subscription.start_date.year == period_month.year and subscription.start_date.month == period_month.month:
-        return money(pricing_plan.setup_fee)
+    if (
+        subscription.setup_disposition == "charged"
+        and subscription.start_date.year == period_month.year
+        and subscription.start_date.month == period_month.month
+    ):
+        return money(_contract_value(subscription, "contracted_setup_fee", pricing_plan.setup_fee))
+    if subscription.contracted_setup_fee is None and (
+        subscription.start_date.year == period_month.year and subscription.start_date.month == period_month.month
+    ):
+        return money(pricing_plan.setup_fee or 0)
     return Decimal("0")
 
 
@@ -227,5 +321,22 @@ def _annual_fee_for_month(
     if period_month < subscription.start_date:
         return Decimal("0")
     if subscription.start_date.month == period_month.month:
-        return money(pricing_plan.annual_fee)
+        return money(_contract_value(subscription, "contracted_annual_fee", pricing_plan.annual_fee))
     return Decimal("0")
+
+
+def _one_time_fee_for_month(
+    pricing_plan: PricingPlan,
+    subscription: ClientSubscription,
+    period_month: date,
+) -> Decimal:
+    if subscription.start_date.year == period_month.year and subscription.start_date.month == period_month.month:
+        return money(_contract_value(subscription, "contracted_one_time_fee", pricing_plan.one_time_fee))
+    return Decimal("0")
+
+
+def _contract_value(subscription: ClientSubscription | None, field: str, catalog_value) -> Decimal:
+    if subscription is None:
+        return Decimal(str(catalog_value or 0))
+    value = getattr(subscription, field)
+    return Decimal(str(catalog_value or 0)) if value is None else Decimal(str(value))
