@@ -77,6 +77,11 @@ def test_seed_catalog_has_exact_saremi_economics_and_visibility(tmp_path, monkey
         Decimal("6.5"),
     )
     assert plans["SAREMI_SCALE"].featured is True
+    assert not plans["SAREMI_SCALE"].featured_label
+    assert {plans[code].setup_fee for code in ("SAREMI_CORE", "SAREMI_SCALE", "SAREMI_ENTERPRISE")} == {Decimal("9999")}
+    assert {plans[code].minimum_setup_fee for code in ("SAREMI_CORE", "SAREMI_SCALE", "SAREMI_ENTERPRISE")} == {
+        Decimal("9999")
+    }
     assert plans["SAREMI_ENTERPRISE"].monthly_fixed_fee is None
     assert plans["SAREMI_ENTERPRISE"].included_documents is None
     assert plans["SAREMI_API_10K"].assignable is False

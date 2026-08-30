@@ -415,21 +415,28 @@ def _average_usage(usage_events, event_type: str, client_count: int) -> float:
 
 
 def _plan_rows(repo: SeedRepository, service_line: str) -> list[dict]:
-    return [
-        {
-            "plan": f"{plan.name}{' ★ ' + plan.featured_label if plan.featured else ''}",
+    rows = []
+    for plan in repo.pricing_plans(catalog_only=True, service_line=service_line):
+        row = {
+            "plan": plan.name,
             "status": "Available" if plan.assignable else "Contact sales",
             "monthly_fee": _format_catalog_money(plan.monthly_fixed_fee),
             "included_documents": _format_catalog_quantity(plan.included_documents),
-            "overage_per_document": _format_catalog_money(plan.price_per_document, decimals=2),
-            "setup": _setup_label(plan),
-            "users": "Unlimited" if plan.unlimited_users and service_line == "saremi_platform" else "API access",
-            "processing": plan.processing_description or "Custom",
-            "configuration": plan.configuration_description or "Custom",
-            "support": plan.support_description or "Custom",
         }
-        for plan in repo.pricing_plans(catalog_only=True, service_line=service_line)
-    ]
+        if service_line == "saremi_platform":
+            row["price_per_document"] = _format_catalog_money(_included_document_price(plan), decimals=2)
+        row.update(
+            {
+                "overage_per_document": _format_catalog_money(plan.price_per_document, decimals=2),
+                "setup": _setup_label(plan),
+                "users": "Unlimited" if plan.unlimited_users and service_line == "saremi_platform" else "API access",
+                "processing": plan.processing_description or "Custom",
+                "configuration": plan.configuration_description or "Custom",
+                "support": plan.support_description or "Custom",
+            }
+        )
+        rows.append(row)
+    return rows
 
 
 def _plan_by_id(repo: SeedRepository, plan_id: int):
@@ -461,13 +468,18 @@ def _format_catalog_quantity(value: int | None) -> str:
     return f"{value:,}" if value is not None else "According to operation"
 
 
+def _included_document_price(plan) -> Decimal | None:
+    if plan.monthly_fixed_fee is None or not plan.included_documents:
+        return None
+    return Decimal(plan.monthly_fixed_fee) / Decimal(plan.included_documents)
+
+
 def _setup_label(plan) -> str:
     if plan.setup_fee is None:
         return "A la medida"
     if plan.setup_fee == 0:
         return "Included / $0" if plan.setup_type == "included" else "Not applicable / $0"
-    minimum = f" (minimum {_format_catalog_money(plan.minimum_setup_fee)})" if plan.minimum_setup_fee else ""
-    return f"{_format_catalog_money(plan.setup_fee)}{minimum}"
+    return _format_catalog_money(plan.setup_fee)
 
 
 def _crossover_rows(repo: SeedRepository) -> list[dict]:

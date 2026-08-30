@@ -7,7 +7,7 @@ from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
 
 REVISION = "20260827_08"
-CONSOLE_HEAD_REVISION = "20260830_12"
+CONSOLE_HEAD_REVISION = "20260830_13"
 MIGRATION_FILE = "20260827_08_anthropic_history.py"
 
 
