@@ -7,7 +7,7 @@ Use this page as a router, not as a reading list. Start with the row matching th
 | Understand the system | [Architecture overview](architecture/overview.md), [module map](architecture/modules.md) | `app/main.py`, `app/routes.py` |
 | Pricing, revenue, margins, break-even | [Business rules](domain/business-rules.md), [invariants](domain/invariants.md), [terminology](domain/terminology.md) | `app/domain/`, relevant domain tests |
 | Clients, costs, subscriptions, usage | [Data model](data/data-model.md), [database](data/database.md) | `app/data/schemas.py`, repositories, migrations |
-| SAREMI pricing or usage | [SAREMI](integrations/saremi.md), [business rules](domain/business-rules.md) | Pricing/revenue domain, SAREMI tests and migrations |
+| SAREMI pricing or usage | [SAREMI](integrations/saremi.md), [usage-event ingestion](integrations/saremi-usage-events.md), [business rules](domain/business-rules.md) | Pricing/revenue domain, provider adapter, SAREMI tests and migrations |
 | Operational-event schema or ingestion | [Event flow](architecture/data-flow.md) | `app/domain/operational_events.py`, operational repositories and tests |
 | Anthropic usage/cost | [Anthropic](integrations/anthropic.md) | Admin adapter, sync/allocation domain, history repositories |
 | FX or scenarios | [Integration overview](integrations/overview.md), [business rules](domain/business-rules.md) | Banxico adapter, FX domain/repository, scenario domain |

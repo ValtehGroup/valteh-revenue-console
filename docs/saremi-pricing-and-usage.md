@@ -27,7 +27,7 @@ Agreement usage state is explicit:
 The Notaría 38 pilot remains a MXN 5,000 one-time agreement with 500 included documents, no recurring fee, included
 setup, no new overage, and pending usage. The approximate 450 documents are deliberately not stored as events.
 
-## Canonical future billable event
+## Canonical normalized billable event
 
 The normalized event type is `saremi.processed_document`. It represents one logical document that reached a usable
 terminal result. It is not a Claude call, individual validation, page, token quantity, internal retry, or failed
@@ -35,15 +35,26 @@ upload. `quantity` is normally 1 and `billable_unit_id` identifies the logical u
 billable unit do not multiply revenue. Sandbox/staging and `is_billable=false` events never bill. A client resubmission
 may bill only when SAREMI supplies a distinct billable-unit identity under the approved commercial rule.
 
-Future SAREMI telemetry should preserve `document_processing_id`, `billable_unit_id`, client/institution reference,
-environment, terminal status, billable flag and reason, retry/correlation relationship, document type or hash,
-processed timestamp, API key ID, model, and token dimensions.
+The SAREMI provider response and the normalized Revenue event are intentionally different. Revenue preserves the
+source `event_id`, `verification_id`, institution, API-key reference, document type, operation, exact source status,
+and source timestamps as provider facts. Revenue derives `saremi.processed_document`, quantity, unit, client mapping,
+environment mapping, billability, and classification reason locally.
+
+SAREMI's expanded statuses are valid product states: `processing`, `verified`, `invalid`, `inconclusive`,
+`manual_review`, and `failed`. They must not be collapsed or rejected at the provider boundary. Unknown future
+statuses remain stored but non-billable until an explicit local rule is approved.
+
+Economic activation also requires SAREMI to expose the source environment and to confirm that `verification_id` is a
+stable logical billable unit across retries and resubmissions, or provide a separate `billable_unit_id`. Detailed
+source requirements and mapping rules are in
+[SAREMI Usage-Event Ingestion](integrations/saremi-usage-events.md).
 
 ## Claude cost attribution
 
 Anthropic Admin API facts remain real and unchanged. API-key ownership is resolved through date-effective client
-assignments; unmatched cost remains unassigned and reconcilable. The Admin API is aggregate and cannot by itself
-produce exact document cost. Exact document attribution requires SAREMI correlation telemetry; until then the console
-must show aggregate/assigned client or period cost and must not divide cost by an estimated document count.
+assignments; unmatched cost remains unassigned and reconcilable. The SAREMI usage-event consumer does not call
+`/api/internal/ai-usage-events`, populate Anthropic history from SAREMI, or replace provider-billed cost. The console
+must not divide aggregate Anthropic cost by an estimated document count and present it as exact document cost.
 
-This change does not implement a SAREMI HTTP client, synchronization, queues, invoice ledger, or external alerts.
+This documentation defines the integration requirements; it does not implement a SAREMI HTTP client,
+synchronization, queues, invoice ledger, or external alerts.
