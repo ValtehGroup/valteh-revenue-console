@@ -24,6 +24,7 @@ from app.data.anthropic_assignment_repository import (
 from app.data.anthropic_history_repository import AnthropicHistoryRepository
 from app.data.client_repository import ClientRepository
 from app.data.repositories import SeedRepository
+from app.data.saremi_usage_repository import SaremiUsageRepository
 from app.domain.anthropic_cost_allocation import allocate_anthropic_costs
 from app.domain.anthropic_history_sync import (
     AnthropicHistorySyncService,
@@ -69,6 +70,9 @@ def layout():
     default_start = today - timedelta(days=6)
     anthropic_is_configured = get_settings().anthropic_admin_key is not None
     history_status = AnthropicHistoryRepository().status()
+    saremi_repository = SaremiUsageRepository()
+    saremi_status = saremi_repository.status()
+    saremi_rows = saremi_repository.list_events()
     return html.Div(
         [
             html.H1("Usage", className="h3"),
@@ -166,10 +170,77 @@ def layout():
                 ),
                 className="content-card mb-4",
             ),
+            dbc.Card(
+                dbc.CardBody(
+                    [
+                        html.H2("SAREMI usage events", className="h5"),
+                        html.P(
+                            "Provider facts imported by valteh-revenue-api. Source lifecycle and local billing "
+                            "classification are intentionally shown separately.",
+                            className="text-muted",
+                        ),
+                        dbc.Alert(
+                            _saremi_status_message(saremi_status),
+                            color="danger" if saremi_status.status == "failed" else "secondary",
+                        ),
+                        dbc.Row(
+                            [
+                                dbc.Col(
+                                    kpi_card(
+                                        "SAREMI facts",
+                                        f"{saremi_status.total_facts:,}",
+                                        "Stored provider snapshots",
+                                        card_id="saremi-total-facts",
+                                    ),
+                                    md=4,
+                                ),
+                                dbc.Col(
+                                    kpi_card(
+                                        "Normalized usage",
+                                        f"{saremi_status.normalized_facts:,}",
+                                        "Passed every billing guard",
+                                        color="success",
+                                        card_id="saremi-normalized-facts",
+                                    ),
+                                    md=4,
+                                ),
+                                dbc.Col(
+                                    kpi_card(
+                                        "Needs resolution",
+                                        f"{saremi_status.unresolved_facts:,}",
+                                        "Unresolved or unknown policy",
+                                        color="warning",
+                                        card_id="saremi-unresolved-facts",
+                                    ),
+                                    md=4,
+                                ),
+                            ],
+                            className="g-3 mb-3",
+                        ),
+                        (
+                            data_table("saremi-usage-table", saremi_rows, 15)
+                            if saremi_rows
+                            else dbc.Alert("No SAREMI provider facts have been imported yet.", color="light")
+                        ),
+                    ]
+                ),
+                className="content-card mb-4",
+            ),
             html.H2("Operational usage", className="h5"),
             data_table("usage-table", rows, 15, excluded_columns=["client_id"]),
         ]
     )
+
+
+def _saremi_status_message(status) -> str:
+    if status.status == "not_started":
+        return "SAREMI synchronization has not started. The API owns credentials and synchronization commands."
+    watermark = status.high_watermark.isoformat() if status.high_watermark else "none"
+    synced_at = status.last_successful_sync_at.isoformat() if status.last_successful_sync_at else "never"
+    message = f"Sync status: {status.status}; source watermark: {watermark}; last successful sync: {synced_at}."
+    if status.error_message:
+        message = f"{message} Last error: {status.error_message}"
+    return message
 
 
 def register_callbacks(app) -> None:

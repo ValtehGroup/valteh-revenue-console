@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.data.database import SessionLocal
 from app.data.schemas import USDMXNRateORM
 from app.domain.fx_rates import (
+    MAXIMUM_FX_AGE_DAYS,
     USD_MXN_FIX_SERIES_ID,
     DatedFxRateBook,
     FxRateObservation,
@@ -59,13 +60,16 @@ class FxRateRepository:
         starting_at: date,
         ending_at: date,
         *,
-        maximum_age_days: int = 7,
+        maximum_age_days: int | None = MAXIMUM_FX_AGE_DAYS,
     ) -> DatedFxRateBook:
         """Load one bounded observation set for a dated calculation range."""
 
         if ending_at < starting_at:
             raise ValueError("End date must be on or after start date.")
-        observations = self.observations(starting_at - timedelta(days=maximum_age_days), ending_at)
+        observation_start = (
+            date.min if maximum_age_days is None else max(date.min, starting_at - timedelta(days=maximum_age_days))
+        )
+        observations = self.observations(observation_start, ending_at)
         return DatedFxRateBook(observations, maximum_age_days=maximum_age_days)
 
     def upsert(self, observations: Sequence[FxRateObservation]) -> FxRateUpsertResult:

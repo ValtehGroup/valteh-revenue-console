@@ -77,6 +77,18 @@ def test_rate_book_rejects_missing_and_stale_rates() -> None:
         rates.resolve("USD", date(2026, 5, 9))
 
 
+def test_rate_book_can_carry_last_fix_forward_without_changing_its_observation_date() -> None:
+    rates = DatedFxRateBook(
+        [FxRateObservation(USD_MXN_FIX_SERIES_ID, date(2026, 5, 1), Decimal("18"))],
+        maximum_age_days=None,
+    )
+
+    resolved = rates.resolve("USD", date(2026, 5, 20))
+
+    assert resolved.rate == Decimal("18")
+    assert resolved.observation_date == date(2026, 5, 1)
+
+
 def test_mixed_fixed_costs_revalue_only_usd_without_mutating_sources() -> None:
     usd = _cost()
     mxn = _cost(
@@ -168,9 +180,21 @@ class _CountingFxRepository:
     def __init__(self) -> None:
         self.calls: list[tuple[date, date]] = []
 
-    def rate_book(self, starting_at: date, ending_at: date) -> DatedFxRateBook:
+    def rate_book(
+        self,
+        starting_at: date,
+        ending_at: date,
+        *,
+        maximum_age_days: int | None = 7,
+    ) -> DatedFxRateBook:
         self.calls.append((starting_at, ending_at))
-        return _rate_book((starting_at, "18"), (ending_at, "19"))
+        return DatedFxRateBook(
+            [
+                FxRateObservation(USD_MXN_FIX_SERIES_ID, starting_at, Decimal("18")),
+                FxRateObservation(USD_MXN_FIX_SERIES_ID, ending_at, Decimal("19")),
+            ],
+            maximum_age_days=maximum_age_days,
+        )
 
 
 def test_repository_reuses_bulk_fx_context_and_skips_it_for_mxn() -> None:

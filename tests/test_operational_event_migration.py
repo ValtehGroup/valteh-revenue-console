@@ -6,9 +6,9 @@ from alembic import command
 from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
 
-REVISION = "20260827_08"
-CONSOLE_HEAD_REVISION = "20260830_14"
-MIGRATION_FILE = "20260827_08_anthropic_history.py"
+REVISION = "20260905_15"
+CONSOLE_HEAD_REVISION = REVISION
+MIGRATION_FILE = "20260905_15_saremi_usage_events.py"
 
 
 def _upgrade(repo_root: Path, database_url: str) -> None:
@@ -75,4 +75,15 @@ def test_anthropic_history_migration_creates_unique_provider_fact_schema(tmp_pat
     }
     assert "uq_anthropic_cost_daily_identity" in {
         constraint["name"] for constraint in inspector.get_unique_constraints("anthropic_cost_daily")
+    }
+
+
+def test_saremi_migration_creates_mutable_fact_and_sync_state(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{(tmp_path / 'saremi-usage.db').as_posix()}"
+    _upgrade(Path(__file__).resolve().parents[1], database_url)
+    inspector = sa.inspect(sa.create_engine(database_url))
+
+    assert {"saremi_usage_events", "saremi_sync_watermarks", "saremi_sync_runs"} <= set(inspector.get_table_names())
+    assert "uq_saremi_usage_events_source_event_id" in {
+        constraint["name"] for constraint in inspector.get_unique_constraints("saremi_usage_events")
     }

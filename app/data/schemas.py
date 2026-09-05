@@ -221,6 +221,80 @@ class UsageEventORM(Base):
     billable_unit_id: Mapped[str | None] = mapped_column(String(160), index=True)
 
 
+class SaremiUsageEventORM(Base):
+    """Mutable SAREMI verification snapshot, separate from normalized usage."""
+
+    __tablename__ = "saremi_usage_events"
+    __table_args__ = (
+        UniqueConstraint("source_event_id", name="uq_saremi_usage_events_source_event_id"),
+        UniqueConstraint("normalized_usage_event_id", name="uq_saremi_usage_events_normalized_usage_event_id"),
+        Index("ix_saremi_usage_events_status_updated", "source_status", "source_updated_at"),
+        Index("ix_saremi_usage_events_institution_updated", "institution_id", "source_updated_at"),
+        Index("ix_saremi_usage_events_classification", "classification_status"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source_event_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    verification_id: Mapped[str] = mapped_column(String(160), nullable=False, index=True)
+    institution_id: Mapped[str | None] = mapped_column(String(160))
+    institution_name: Mapped[str | None] = mapped_column(String(240))
+    api_key_id: Mapped[str | None] = mapped_column(String(160))
+    api_key_name: Mapped[str | None] = mapped_column(String(240))
+    document_type: Mapped[str] = mapped_column(String(120), nullable=False)
+    operation: Mapped[str] = mapped_column(String(120), nullable=False)
+    source_status: Mapped[str] = mapped_column(String(120), nullable=False)
+    source_environment: Mapped[str | None] = mapped_column(String(80))
+    source_created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    source_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    source_updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    ai_usage_summary_json: Mapped[str | None] = mapped_column(Text)
+    raw_payload_json: Mapped[str] = mapped_column(Text, nullable=False)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    lifecycle_status: Mapped[str] = mapped_column(String(40), nullable=False)
+    classification_status: Mapped[str] = mapped_column(String(40), nullable=False)
+    classification_reason: Mapped[str] = mapped_column(Text, nullable=False)
+    policy_version: Mapped[str] = mapped_column(String(40), nullable=False)
+    normalized_usage_event_id: Mapped[int | None] = mapped_column(ForeignKey("usage_events.id"))
+
+
+class SaremiSyncWatermarkORM(Base):
+    __tablename__ = "saremi_sync_watermarks"
+
+    stream: Mapped[str] = mapped_column(String(80), primary_key=True)
+    cursor: Mapped[str | None] = mapped_column(String(500))
+    query_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    query_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    high_watermark: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_successful_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="idle")
+    error_message: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class SaremiSyncRunORM(Base):
+    __tablename__ = "saremi_sync_runs"
+    __table_args__ = (Index("ix_saremi_sync_runs_started_at", "started_at"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    mode: Mapped[str] = mapped_column(String(20), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    requested_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    requested_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    pages_fetched: Mapped[int] = mapped_column(nullable=False, default=0)
+    rows_received: Mapped[int] = mapped_column(nullable=False, default=0)
+    rows_inserted: Mapped[int] = mapped_column(nullable=False, default=0)
+    rows_updated: Mapped[int] = mapped_column(nullable=False, default=0)
+    rows_unchanged: Mapped[int] = mapped_column(nullable=False, default=0)
+    rows_invalid: Mapped[int] = mapped_column(nullable=False, default=0)
+    rows_normalized: Mapped[int] = mapped_column(nullable=False, default=0)
+    rows_unresolved: Mapped[int] = mapped_column(nullable=False, default=0)
+    resulting_watermark: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error_message: Mapped[str | None] = mapped_column(Text)
+
+
 class CostItemORM(Base):
     __tablename__ = "cost_items"
     __table_args__ = (

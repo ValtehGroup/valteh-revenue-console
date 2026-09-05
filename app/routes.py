@@ -1,7 +1,15 @@
-import dash_bootstrap_components as dbc
-from dash import Input, Output, State, ctx, no_update
+import logging
+from collections.abc import Callable
+from datetime import date, datetime
 
+import dash_bootstrap_components as dbc
+from dash import Input, Output, State, ctx, html, no_update
+
+from app.data.fx_rate_repository import FxRateRepository
+from app.domain.fx_history_sync import MEXICO_CITY_TIMEZONE, fx_history_is_stale
 from app.domain.fx_rates import FxRateUnavailableError
+from app.integrations.automatic_fx_refresh import refresh_stale_fx_history
+from app.integrations.banxico_sie_api import BanxicoSIEAPIError
 from app.pages import (
     client_detail,
     clients,
@@ -12,6 +20,8 @@ from app.pages import (
     usage,
     user_guide,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def register_routes(app) -> None:
@@ -38,10 +48,45 @@ def register_routes(app) -> None:
     ):
         if _preserve_page_on_shell_change(pathname, ctx.triggered_id, current_page is not None):
             return no_update
+        refresh_error = _refresh_fx_history_if_needed()
         try:
-            return page_layout(pathname, display_currency)
+            page = page_layout(pathname, display_currency)
         except FxRateUnavailableError as exc:
-            return dbc.Alert(str(exc), color="danger")
+            details = f" Automatic Banxico refresh failed: {refresh_error}" if refresh_error else ""
+            return dbc.Alert(f"{exc}{details}", color="danger")
+        warning = _stale_fx_warning()
+        return html.Div([warning, page]) if warning is not None else page
+
+
+def _refresh_fx_history_if_needed() -> str | None:
+    try:
+        refresh_stale_fx_history()
+    except (BanxicoSIEAPIError, ValueError, RuntimeError) as exc:
+        logger.warning("Automatic Banxico FIX refresh failed: %s", exc)
+        return str(exc)
+    except Exception:
+        logger.exception("Automatic Banxico FIX refresh failed unexpectedly")
+        return "FX history update failed."
+    return None
+
+
+def _stale_fx_warning(
+    repository: FxRateRepository | None = None,
+    mexico_today: Callable[[], date] | None = None,
+):
+    latest = (repository or FxRateRepository()).latest()
+    today = (mexico_today or (lambda: datetime.now(MEXICO_CITY_TIMEZONE).date()))()
+    if latest is None or not fx_history_is_stale(latest, today):
+        return None
+    return dbc.Alert(
+        [
+            html.Strong(f"Using the latest available Banxico FIX from {latest.rate_date.isoformat()}. "),
+            html.Span("The exchange rate may not be current. Open Scenarios and select "),
+            html.A("Update FX history", href="/scenarios", className="alert-link"),
+            html.Span(" to try reloading Banxico data."),
+        ],
+        color="warning",
+    )
 
 
 def _preserve_page_on_theme_change(pathname: str, triggered_id: str | None, page_is_mounted: bool) -> bool:

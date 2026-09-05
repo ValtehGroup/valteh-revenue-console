@@ -701,7 +701,9 @@ class SeedRepository:
         for cached_start, cached_end, rate_book in self._fx_rate_books:
             if cached_start <= starting_at and cached_end >= ending_at:
                 return rate_book
-        rate_book = self._fx_repository.rate_book(starting_at, ending_at)
+        # Dashboard reads carry the last official FIX forward when Banxico is temporarily unavailable.
+        # The observation date remains attached so the UI can disclose staleness without fabricating history.
+        rate_book = self._fx_repository.rate_book(starting_at, ending_at, maximum_age_days=None)
         self._fx_rate_books.append((starting_at, ending_at, rate_book))
         return rate_book
 
