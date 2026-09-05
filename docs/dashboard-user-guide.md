@@ -33,8 +33,10 @@ It does not rewrite costs, revenue, plans, subscriptions, usage, or any other re
 In USD view, revenue and costs are translated occurrence by occurrence using the persisted Banxico FIX applicable to
 their recognition date. Setup revenue uses the subscription start date, annual revenue its anniversary, monthly
 subscription revenue the closed month's final calendar day, and usage revenue the usage-event date. Current-month
-recurring amounts use today's Mexico City date provisionally. The latest prior FIX may be used only when it is no more
-than seven calendar days old; the dashboard never silently falls back to 18 or contacts Banxico while rendering.
+recurring amounts use today's Mexico City date provisionally. Before mounting a page, the dashboard automatically
+contacts Banxico when the latest stored observation is more than seven calendar days old. If Banxico is unavailable,
+the dashboard remains usable with that last persisted FIX and shows its observation date in a warning. It never
+silently falls back to 18 or creates a synthetic observation.
 
 Revenue and costs are translated separately before gross and operating margin are recalculated. Consequently, the USD
 margin percentage can differ from MXN when the underlying revenue and cost dates use different FIX observations.
@@ -117,11 +119,12 @@ the persisted Banxico FIX applicable to the date on which the cost is recognized
 
 USD usage costs use each event's date. One-time costs use their start date. Closed-month recurring monthly and annual
 costs use the month's final calendar day; the current month uses today's Mexico City date and is provisional. If the
-valuation date is a weekend or Banxico holiday, the dashboard uses the latest prior FIX, up to seven calendar days old.
+valuation date is after the latest Banxico observation, the dashboard uses that latest prior FIX. Once it is more than
+seven days old, an automatic refresh is attempted and a warning names the observation date until newer data is stored.
 It never selects a future observation or silently falls back to the static ingestion rate. The realized-cost table
-shows the resulting reference as **USD_MXN_used**. Run **Update FX history** on Scenarios if required history is
-unavailable. The underlying calculation still retains the requested valuation date and Banxico observation date for
-audit, without displaying those implementation details as separate columns.
+shows the resulting reference as **USD_MXN_used**. Use **Update FX history** on Scenarios to retry Banxico manually.
+The underlying calculation still retains the requested valuation date and Banxico observation date for audit, without
+displaying those implementation details as separate columns.
 
 The expanded **Costs Table** contains cost definitions rather than individual recognized expenses, so it does not show
 an FX rate. Its Base Amount is quantity multiplied by the original entered unit cost and is displayed in that original
@@ -194,10 +197,13 @@ divided by that scenario row's own USD/MXN assumption; historical FIX observatio
 horizon. The month-by-month table remains unchanged.
 
 The **USD/MXN FIX history** card reads persisted Banco de México series `SF43718` observations and shows the latest 12
-months. Select **Update FX history** to contact Banxico explicitly. The first successful update imports observations
-from `2015-01-01`; later updates refresh a seven-calendar-day overlap. Weekends, Mexican bank holidays, and days before
-FIX is published may have no observation. A successful update places the latest persisted FIX in the editable baseline
-field and recalculates the scenarios. Failed updates preserve the current baseline and stored chart.
+months. Before any page is mounted, a local freshness check automatically contacts Banxico only when the latest stored
+observation is more than seven calendar days old (or no history exists). Select **Update FX history** to force an
+explicit refresh at any time. The first successful update imports observations from `2015-01-01`; later updates refresh
+a seven-calendar-day overlap. Weekends, Mexican bank holidays, and days before FIX is published may have no observation.
+A successful manual update places the latest persisted FIX in the editable baseline field and recalculates the scenarios.
+Failed updates preserve the current baseline and stored chart. The dashboard carries the last persisted FIX forward and
+shows a warning with its date plus a link to retry **Update FX history**; historical dated observations remain unchanged.
 
 Historical FIX observations, the editable Scenario assumption, and the compatibility MXN snapshot created when a cost
 is saved are separate concepts. Actual historical calculations use the original entered amount and the dated FIX;

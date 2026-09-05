@@ -6,7 +6,7 @@ from datetime import date, datetime, timedelta
 from typing import Protocol
 from zoneinfo import ZoneInfo
 
-from app.domain.fx_rates import FxRateObservation, FxRateUpsertResult
+from app.domain.fx_rates import MAXIMUM_FX_AGE_DAYS, FxRateObservation, FxRateUpsertResult
 
 FX_HISTORY_START_DATE = date(2015, 1, 1)
 FX_SYNC_OVERLAP_DAYS = 7
@@ -46,7 +46,25 @@ class FxHistorySyncService:
         self._mexico_today = mexico_today or (lambda: datetime.now(MEXICO_CITY_TIMEZONE).date())
 
     def sync(self) -> FxHistorySyncResult:
-        starting_at, ending_at = resolve_fx_sync_range(self._repository.latest(), self._mexico_today())
+        return self._sync(self._mexico_today())
+
+    def sync_if_stale(
+        self,
+        *,
+        maximum_age_days: int = MAXIMUM_FX_AGE_DAYS,
+    ) -> FxHistorySyncResult | None:
+        """Synchronize only when the latest persisted FIX is too old for valuation."""
+
+        if maximum_age_days < 0:
+            raise ValueError("Maximum FX age must be non-negative.")
+        mexico_today = self._mexico_today()
+        latest = self._repository.latest()
+        if not fx_history_is_stale(latest, mexico_today, maximum_age_days=maximum_age_days):
+            return None
+        return self._sync(mexico_today)
+
+    def _sync(self, mexico_today: date) -> FxHistorySyncResult:
+        starting_at, ending_at = resolve_fx_sync_range(self._repository.latest(), mexico_today)
         observations = tuple(self._client.fetch_usd_mxn_fix(starting_at, ending_at))
         persisted = self._repository.upsert(observations)
         latest = self._repository.latest()
@@ -68,3 +86,19 @@ def resolve_fx_sync_range(latest: FxRateObservation | None, mexico_today: date) 
     if latest is None:
         return FX_HISTORY_START_DATE, mexico_today
     return max(FX_HISTORY_START_DATE, latest.rate_date - timedelta(days=FX_SYNC_OVERLAP_DAYS)), mexico_today
+
+
+def fx_history_is_stale(
+    latest: FxRateObservation | None,
+    mexico_today: date,
+    *,
+    maximum_age_days: int = MAXIMUM_FX_AGE_DAYS,
+) -> bool:
+    if maximum_age_days < 0:
+        raise ValueError("Maximum FX age must be non-negative.")
+    if latest is None:
+        return True
+    age_days = (mexico_today - latest.rate_date).days
+    if age_days < 0:
+        raise ValueError("The latest persisted FIX observation is dated in the future.")
+    return age_days > maximum_age_days

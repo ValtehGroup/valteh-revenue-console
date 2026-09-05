@@ -19,7 +19,9 @@
 - Variable cost uses the rate effective on each event date; multiple cost components may apply to one event type.
 - Fixed costs follow their configured frequency and effective dates. Overlapping active versions for the same cost key are invalid.
 - Original entered currency/amount is preserved while normalized MXN economics and dated display translations are calculated separately.
-- Banxico series `SF43718` is the stored USD/MXN FIX source. Missing or stale required FX history fails explicitly.
+- Banxico series `SF43718` is the stored USD/MXN FIX source. History older than seven days triggers an automatic refresh.
+  If Banxico is unavailable, dashboard reads carry the last persisted FIX forward and disclose its observation date;
+  missing history still fails explicitly.
 
 ## Margins and break-even
 

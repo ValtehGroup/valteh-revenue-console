@@ -3,7 +3,7 @@
 | Integration | Current implementation | Important boundary |
 | --- | --- | --- |
 | Anthropic Admin API | Real server-side HTTP adapter, live reports, durable history sync | Provider facts and derived allocation stay separate |
-| Banxico SIE | Real explicit-sync adapter for USD/MXN FIX `SF43718` | No provider calls during startup/rendering |
+| Banxico SIE | Real server-side adapter for USD/MXN FIX `SF43718` | Automatic refresh before page rendering only when persisted history is more than seven days old; manual refresh remains available |
 | SAREMI | Production provider contract documented; source adapter and sync are pending | Preserve source statuses/facts; `valteh-revenue-api` owns ingestion and normalization |
 | Graphos, Blockchain, LLM usage | Mock adapters returning sample usage events | Do not treat as production telemetry |
 | Platform API | Mock adapter returning sample client records | Do not treat as a production client source |

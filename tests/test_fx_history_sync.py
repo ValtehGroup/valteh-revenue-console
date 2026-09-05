@@ -87,6 +87,34 @@ def test_sync_bootstraps_then_uses_seven_day_overlap() -> None:
     assert resolve_fx_sync_range(result.latest, date(2026, 8, 29)) == (date(2026, 8, 21), date(2026, 8, 29))
 
 
+def test_conditional_sync_skips_fix_that_is_at_most_seven_days_old() -> None:
+    repository, _factory = _repository()
+    latest_day = date(2026, 8, 21)
+    repository.upsert([_observation(latest_day, "17.25")])
+    client = FakeFxClient()
+    service = FxHistorySyncService(client, repository, mexico_today=lambda: date(2026, 8, 28))
+
+    result = service.sync_if_stale()
+
+    assert result is None
+    assert client.calls == []
+
+
+def test_conditional_sync_refreshes_fix_that_is_more_than_seven_days_old() -> None:
+    repository, _factory = _repository()
+    existing_day = date(2026, 8, 20)
+    current_day = date(2026, 8, 28)
+    repository.upsert([_observation(existing_day, "17.10")])
+    client = FakeFxClient([_observation(current_day, "17.25")])
+    service = FxHistorySyncService(client, repository, mexico_today=lambda: current_day)
+
+    result = service.sync_if_stale()
+
+    assert result is not None
+    assert result.latest == _observation(current_day, "17.250000")
+    assert client.calls == [(date(2026, 8, 13), current_day)]
+
+
 def test_failed_fetch_leaves_existing_history_unchanged() -> None:
     repository, factory = _repository()
     existing = _observation(date(2026, 8, 28), "17.25")

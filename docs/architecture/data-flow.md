@@ -27,4 +27,9 @@ Historical sync explicitly fetches completed UTC days, validates provider facts,
 
 ## FX
 
-An explicit user action fetches Banxico USD/MXN FIX observations. Reads use persisted history; rendering/startup never contacts Banxico. Dated valuation uses the exact or latest prior valid rate and does not rewrite original source amounts.
+Before mounting a page, the route checks the latest persisted Banxico USD/MXN FIX observation. It reads locally and
+contacts Banxico only when no observation exists or the latest is more than seven calendar days old. A process-wide
+lock prevents concurrent stale requests from duplicating the provider call. The Scenarios page also retains its manual
+refresh control. Dated valuation uses the exact or latest prior valid rate and does not rewrite original source amounts.
+If refresh fails, the latest observation is carried forward so pages remain available, while a visible warning names
+its date and offers the manual retry. No synthetic current-date observation is persisted.

@@ -22,7 +22,7 @@ must not feed the Anthropic fact tables or economic calculations.
 ## Current source contract
 
 The contract below reflects SAREMI `main` at commit `d94e2e90d61400b77a524e7599ea9af375ce5c3c`, reviewed on
-2026-09-03. It must be verified with an authenticated production fixture before implementation is considered ready.
+2026-09-05. It must be verified with an authenticated production fixture before implementation is considered ready.
 
 Preferred endpoint:
 
@@ -125,7 +125,7 @@ and versioned in the Revenue domain.
 | `event_id` | required, non-empty | Stable source snapshot identity | Source provenance; not a price or billing ID |
 | `verification_id` | required, non-empty | Verification correlation | Candidate `billable_unit_id` after the one-verification/one-unit rule is confirmed |
 | `institution_id` | nullable | Stable SAREMI tenant identity | `(source_system="saremi", external_client_reference=<institution_id>)` |
-| `institution_name` | nullable | Diagnostic display | Never used as a durable client key |
+| `institution_name` | nullable | Restricted diagnostic storage | Never used as a durable client key or exposed by the Console view |
 | `api_key_id` | nullable | SAREMI client credential attribution | Metadata only; it is not an Anthropic API-key ID |
 | `api_key_name` | nullable | Diagnostic display | Metadata only |
 | `document_type` | required, non-empty | Source document dimension | Usage metadata/filter |
@@ -213,6 +213,38 @@ Repeated runs must be idempotent. A crash must be resumable without losing a pag
 overwrite a newer fact. Client mappings added later must allow stored unresolved facts to be reprocessed without
 contacting SAREMI again.
 
+## Revenue implementation and operation
+
+The shared schema head is `20260905_15`. Both Revenue repositories must carry the same migration before either is
+deployed. `valteh-revenue-api` is the production migration owner and the only process allowed to hold the SAREMI
+credential or call the provider endpoint.
+
+Configuration in `valteh-revenue-api`:
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `SAREMI_USAGE_ENABLED` | `false` | Operational kill switch for outbound synchronization. |
+| `SAREMI_API_URL` | empty | SAREMI base URL; credentials must never be placed in it. |
+| `SAREMI_API_TOKEN` | empty | Server-only integration key with `usage:read`. |
+| `SAREMI_USAGE_PAGE_SIZE` | `200` | Requested page size, constrained to 1–1000. |
+| `SAREMI_USAGE_OVERLAP_MINUTES` | `10` | Incremental re-read before the completed watermark. |
+| `SAREMI_VERIFICATION_ID_IS_BILLABLE_UNIT` | `false` | Economic gate; enable only after written source confirmation. |
+
+Commands run from `valteh-revenue-api` after `alembic upgrade head`:
+
+```bash
+saremi-usage status
+saremi-usage sync --dry-run
+saremi-usage backfill --from 2026-01-01T00:00:00Z --to 2026-09-01T00:00:00Z --dry-run
+saremi-usage backfill --from 2026-01-01T00:00:00Z --to 2026-09-01T00:00:00Z
+saremi-usage sync
+saremi-usage reclassify
+```
+
+`reclassify` performs no provider request. Use it after adding an institution mapping or changing the explicit
+billable-unit gate. A dry run validates and classifies provider pages inside a rolled-back database transaction; it
+does not advance the cursor/watermark or create a sync-run record.
+
 ## Client mapping and billing guards
 
 Use the stable institution identifier, not institution name or API-key ID:
@@ -237,10 +269,11 @@ Source facts that fail a guard remain auditable with a clear local classificatio
 
 ## Administrative endpoint fallback
 
-`GET /admin/verifications` may be used temporarily when the internal endpoint is unavailable, but only behind the
-same provider-client interface. The fallback requires an approved BAAS machine identity, selects only safe fields,
-filters production data explicitly, uses overlapping rescans plus upserts, and never persists extracted document
-content, checks, filenames, paths, IP addresses, or other unnecessary personal data.
+No administrative fallback is implemented or authorized. `GET /admin/verifications` must not be consumed unless a
+separate change is explicitly approved. If that ever happens, it must remain behind the same provider-client
+interface, require an approved BAAS machine identity, select only safe fields, filter production data explicitly,
+use overlapping rescans plus upserts, and never persist extracted document content, checks, filenames, paths, IP
+addresses, or other unnecessary personal data.
 
 The fallback is not the long-term contract because it uses page/offset pagination, filters by `created_at` rather than
 `updated_at`, returns a broader administrative payload, and depends on BAAS user-token lifecycle. It cannot supply

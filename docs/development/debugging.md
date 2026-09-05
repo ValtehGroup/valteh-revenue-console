@@ -16,9 +16,11 @@ This is expected when there is no positive per-document price, unit price does n
 
 The paths are intentionally separate. Compare requested dates, completed UTC days, watermarks, persisted range, workspace/model dimensions, and unallocated cost. Never repair history by copying session-live data.
 
-## USD display fails
+## USD display or stale-FIX warning
 
-Check persisted Banxico FIX coverage for each recognition/valuation date. Resolution may use the latest prior valid rate but never a future rate; missing/stale data should remain an explicit error.
+Check persisted Banxico FIX coverage for each recognition/valuation date. Resolution uses the latest prior valid rate
+and never a future rate. A stale latest observation should trigger an automatic refresh and a visible warning while the
+dashboard carries it forward; completely missing history remains an explicit error.
 
 ## Focused diagnostics
 
