@@ -168,7 +168,7 @@ def test_scenario_table_exposes_usd_mxn_rate() -> None:
         operating_margin=Decimal("600"),
     )
 
-    assert _table_rows([month])[0]["usd_mxn_rate"] == "18.00"
+    assert _table_rows([month])[0]["usd_mxn_rate"] == 18.0
 
 
 def test_scenario_page_has_compact_editable_fx_assumptions() -> None:

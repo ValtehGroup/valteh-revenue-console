@@ -3,10 +3,11 @@ from decimal import Decimal
 
 import pytest
 
+from app.components.tables import data_grid
 from app.data.repositories import SeedRepository
 from app.domain.models import Client, ClientProfitability, ClientSubscription, PricingPlan, UsageEvent
 from app.pages.client_detail import _client_detail_content
-from app.pages.clients import _client_alert, _client_id_from_active_cell, _client_rows, _client_table_styles
+from app.pages.clients import _client_alert, _client_id_from_selected_rows, _client_rows
 from app.pages.usage import _usage_rows
 
 
@@ -22,14 +23,11 @@ def test_clients_table_includes_active_and_inactive_clients() -> None:
 
 def test_client_status_cells_use_lowercase_saremi_status_colors() -> None:
     rows = _client_rows(SeedRepository(), "2026-07")
-    styles = _client_table_styles(None)
-
-    active = next(style for style in styles if style["if"].get("filter_query") == '{client_status} = "active"')
-    inactive = next(style for style in styles if style["if"].get("filter_query") == '{client_status} = "inactive"')
+    grid = data_grid("clients", rows)
+    status_column = next(column for column in grid.columnDefs if column["field"] == "client_status")
 
     assert all(row["client_status"] == row["client_status"].lower() for row in rows)
-    assert active["color"] == "var(--color-status-active)"
-    assert inactive["color"] == "var(--color-danger)"
+    assert status_column["cellClass"] == {"function": "valtehStatusClass(params)"}
 
 
 def test_client_lifecycle_dates_follow_status_and_active_services_are_hidden() -> None:
@@ -52,7 +50,7 @@ def test_usage_rows_include_client_id_and_name() -> None:
 
 
 def test_clicked_client_row_id_selects_client_detail() -> None:
-    assert _client_id_from_active_cell({"row": 1, "column": 2, "row_id": 2}) == 2
+    assert _client_id_from_selected_rows([{"id": 2, "client_name": "Example"}]) == 2
 
 
 def test_inactive_client_detail_renders_without_active_plan() -> None:

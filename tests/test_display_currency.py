@@ -177,5 +177,5 @@ def test_scenario_usd_presentation_uses_each_rows_assumption_without_changing_ta
     frame = _forecast_frame(rows, "USD")
 
     assert list(frame["revenue"]) == [10.0, 12.5]
-    assert _table_rows(rows)[0]["revenue"] == "$200 MXN"
+    assert _table_rows(rows)[0]["revenue"] == 200.0
     assert [row.clients for row in rows] == [2, 3]

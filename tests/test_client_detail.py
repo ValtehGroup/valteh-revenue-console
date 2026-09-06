@@ -1,4 +1,5 @@
-from dash import dash_table, html
+from dash import html
+from dash_ag_grid import AgGrid
 
 from app.data.repositories import SeedRepository
 from app.pages.client_detail import _client_detail_content, _default_client_id, _latest_client_month
@@ -40,7 +41,11 @@ def test_event_sections_are_foldable_and_usage_is_not_limited_to_selected_period
     content = _client_detail_content(2, "2026-07")
     descendants = list(_descendants(content))
 
-    details = [component for component in descendants if isinstance(component, html.Details)]
+    details = [
+        component
+        for component in descendants
+        if isinstance(component, html.Details) and "chart-values" not in (component.className or "")
+    ]
     assert [section.children[0].children for section in details] == [
         "Usage Events",
         "Invoices / Revenue Events",
@@ -48,9 +53,9 @@ def test_event_sections_are_foldable_and_usage_is_not_limited_to_selected_period
     usage_table = next(
         component
         for component in descendants
-        if isinstance(component, dash_table.DataTable) and component.id == "client-usage-events"
+        if isinstance(component, AgGrid) and component.id == "client-usage-events"
     )
-    assert len(usage_table.data) == 5
+    assert len(usage_table.rowData) == 5
 
 
 def _descendants(component):

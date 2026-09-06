@@ -2,14 +2,15 @@ import dash_bootstrap_components as dbc
 import pandas as pd
 from dash import Input, Output, dcc, html
 
+from app.components.chart_shell import chart_with_tooltip, register_chart_tooltips
+from app.components.chart_theme import apply_chart_theme, stable_category_colors
 from app.components.charts import bar_chart, line_chart
-from app.components.tables import data_table
+from app.components.tables import data_grid
 from app.data.repositories import SeedRepository
-from app.domain.display_currency import normalize_display_currency, usd_view_note
+from app.domain.display_currency import format_currency, normalize_display_currency, usd_view_note
 from app.domain.fx_rates import FxRateUnavailableError
 from app.domain.revenue_engine import calculate_client_revenue
 from app.domain.unit_economics import calculate_operating_margin
-from app.utils.currency import format_mxn
 
 
 def layout(display_currency: str | None = "MXN"):
@@ -83,6 +84,17 @@ def detail_section(repo: SeedRepository, clients, display_currency: str = "MXN")
 
 
 def register_callbacks(app) -> None:
+    register_chart_tooltips(
+        app,
+        (
+            "client-usage-service-chart",
+            "client-revenue-service-chart",
+            "client-cost-service-chart",
+            "client-usage-trend-chart",
+            "client-margin-trend-chart",
+        ),
+    )
+
     @app.callback(
         Output("client-detail-month-filter", "value"),
         Input("client-detail-client-filter", "value"),
@@ -100,10 +112,22 @@ def register_callbacks(app) -> None:
         Input("client-detail-month-filter", "value"),
         Input("clients-refresh", "data"),
         Input("display-currency-store", "data"),
+        Input("theme-store", "data"),
     )
-    def update_client_detail(client_id: int, month: str, _refresh: int, display_currency: str | None):
+    def update_client_detail(
+        client_id: int,
+        month: str,
+        _refresh: int,
+        display_currency: str | None,
+        theme_data: dict | None,
+    ):
         try:
-            return _client_detail_content(client_id, month, display_currency)
+            return _client_detail_content(
+                client_id,
+                month,
+                display_currency,
+                theme=theme_data.get("theme") if isinstance(theme_data, dict) else None,
+            )
         except FxRateUnavailableError as exc:
             return dbc.Alert(str(exc), color="danger")
 
@@ -112,6 +136,8 @@ def _client_detail_content(
     client_id: int | None,
     selected_month: str | None = None,
     display_currency: str | None = "MXN",
+    *,
+    theme: str | None = None,
 ):
     currency = normalize_display_currency(display_currency)
     repo = SeedRepository()
@@ -122,6 +148,7 @@ def _client_detail_content(
     detail_month = selected_month if selected_month in months else _latest_client_month(repo, client.id, months)
     usage = repo.usage_history_for_client_month(client.id, detail_month)
     service_usage = {}
+    service_units: dict[str, set[str]] = {}
     trend_by_month = repo.client_presentations(client.id, months, currency)
     presentation = trend_by_month[detail_month]
     service_cost = presentation["cost_by_service"]
@@ -133,6 +160,7 @@ def _client_detail_content(
     )
     for event in usage:
         service_usage[event.service_code] = service_usage.get(event.service_code, 0) + float(event.quantity)
+        service_units.setdefault(event.service_code, set()).add(event.unit)
     trend = pd.DataFrame(
         {
             "month": months,
@@ -168,7 +196,7 @@ def _client_detail_content(
         {
             "date": event.event_timestamp.strftime("%Y-%m-%d"),
             "income_type": _revenue_type_label(event.revenue_type),
-            "amount": format_mxn(event.amount),
+            "amount": float(event.amount),
             "description": event.description,
         }
         for event in sorted(repo.revenue_events(), key=lambda item: (item.event_timestamp, item.revenue_type))
@@ -198,14 +226,38 @@ def _client_detail_content(
                 [
                     dbc.Col(
                         (
-                            dcc.Graph(figure=_usage_bar(service_usage, "Usage by Service"))
+                            chart_with_tooltip(
+                                "client-usage-service-chart",
+                                _usage_bar(service_usage, "Usage by Service", theme),
+                                metric_label="Usage",
+                                value_formatter=lambda value: f"{float(value):,.2f}",
+                                context_by_category={
+                                    service: ", ".join(sorted(units)) for service, units in service_units.items()
+                                },
+                            )
                             if usage_status == "available"
                             else html.Div("Usage unavailable", className="text-muted p-4")
                         ),
                         md=4,
                     ),
-                    dbc.Col(dcc.Graph(figure=_money_bar(service_revenue, "Revenue by Service", currency)), md=4),
-                    dbc.Col(dcc.Graph(figure=_money_bar(service_cost, "Cost by Service", currency)), md=4),
+                    dbc.Col(
+                        chart_with_tooltip(
+                            "client-revenue-service-chart",
+                            _money_bar(service_revenue, "Revenue by Service", currency, theme),
+                            metric_label="Revenue",
+                            value_formatter=lambda value: format_currency(value, currency, decimals=2),
+                        ),
+                        md=4,
+                    ),
+                    dbc.Col(
+                        chart_with_tooltip(
+                            "client-cost-service-chart",
+                            _money_bar(service_cost, "Cost by Service", currency, theme),
+                            metric_label="Cost",
+                            value_formatter=lambda value: format_currency(value, currency, decimals=2),
+                        ),
+                        md=4,
+                    ),
                 ],
                 className="mb-4",
             ),
@@ -213,15 +265,30 @@ def _client_detail_content(
                 [
                     dbc.Col(
                         (
-                            dcc.Graph(figure=line_chart(trend, "month", "usage", "Historical Usage Trend"))
+                            chart_with_tooltip(
+                                "client-usage-trend-chart",
+                                apply_chart_theme(line_chart(trend, "month", "usage", "Historical Usage Trend"), theme),
+                                metric_label="Usage",
+                                value_formatter=lambda value: f"{float(value):,.2f}",
+                            )
                             if usage_status == "available"
                             else html.Div("Usage trend pending integration", className="text-muted p-4")
                         ),
                         md=6,
                     ),
                     dbc.Col(
-                        dcc.Graph(
-                            figure=_money_line(trend, "month", "operating_margin", "Historical Margin Trend", currency)
+                        chart_with_tooltip(
+                            "client-margin-trend-chart",
+                            _money_line(
+                                trend,
+                                "month",
+                                "operating_margin",
+                                "Historical Margin Trend",
+                                currency,
+                                theme,
+                            ),
+                            metric_label="Operating margin",
+                            value_formatter=lambda value: format_currency(value, currency, decimals=2),
                         ),
                         md=6,
                     ),
@@ -231,14 +298,14 @@ def _client_detail_content(
             html.Details(
                 [
                     html.Summary("Usage Events", className="h5"),
-                    html.Div(data_table("client-usage-events", usage_rows, 10), className="mt-3"),
+                    html.Div(data_grid("client-usage-events", usage_rows, 10), className="mt-3"),
                 ],
                 className="mb-3",
             ),
             html.Details(
                 [
                     html.Summary("Invoices / Revenue Events", className="h5"),
-                    html.Div(data_table("client-revenue-events", invoice_rows, 10), className="mt-3"),
+                    html.Div(data_grid("client-revenue-events", invoice_rows, 10), className="mt-3"),
                 ],
                 className="mb-3",
             ),
@@ -319,21 +386,23 @@ def _revenue_type_label(revenue_type: str) -> str:
     return labels.get(revenue_type, revenue_type)
 
 
-def _money_bar(data: dict, title: str, display_currency: str):
+def _money_bar(data: dict, title: str, display_currency: str, theme: str | None = None):
     figure = bar_chart(data, title)
     figure.update_yaxes(title=display_currency)
-    figure.update_traces(hovertemplate=f"%{{x}}<br>$%{{y:,.2f}} {display_currency}<extra></extra>")
-    return figure
+    colors = stable_category_colors(data, theme)
+    figure.update_traces(marker_color=[colors[label] for label in data])
+    return apply_chart_theme(figure, theme)
 
 
-def _usage_bar(data: dict, title: str):
+def _usage_bar(data: dict, title: str, theme: str | None = None):
     figure = bar_chart(data, title)
     figure.update_yaxes(title="Usage")
-    return figure
+    colors = stable_category_colors(data, theme)
+    figure.update_traces(marker_color=[colors[label] for label in data])
+    return apply_chart_theme(figure, theme)
 
 
-def _money_line(frame, x: str, y: str, title: str, display_currency: str):
+def _money_line(frame, x: str, y: str, title: str, display_currency: str, theme: str | None = None):
     figure = line_chart(frame, x, y, title)
     figure.update_yaxes(title=display_currency, tickprefix="$", separatethousands=True)
-    figure.update_traces(hovertemplate=f"%{{x}}<br>$%{{y:,.2f}} {display_currency}<extra></extra>")
-    return figure
+    return apply_chart_theme(figure, theme)

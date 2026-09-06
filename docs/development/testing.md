@@ -16,3 +16,5 @@ python -m black --check .
 Add regression tests for domain edge cases, transactional failures, effective-date boundaries, migrations, provider validation, and important UI states. UI tests in this repository commonly inspect Dash component structures and callback registration without a browser.
 
 Do not claim a check passed unless it ran successfully. Networked provider tests should use injected/fake openers; unit tests must not require real secrets.
+
+Shared chart tooltip and AG Grid formatter regressions use the Node.js built-in runner: `node --test tests/executive_visuals.test.cjs`. Pair these with `tests/test_chart_shell.py`, `tests/test_data_grid.py`, the affected page tests, and browser checks for both themes, nonzero chart heights, filters, exact-value disclosures, sorting, filtering, and pagination.

@@ -7,10 +7,11 @@ import pandas as pd
 import plotly.express as px
 from dash import Input, Output, dcc, html
 
-from app.components.chart_theme import apply_chart_theme
+from app.components.chart_shell import chart_with_tooltip, register_chart_tooltips
+from app.components.chart_theme import apply_chart_theme, stable_category_colors
 from app.components.forms import field_label, numeric_input
 from app.components.kpi_card import kpi_card
-from app.components.tables import data_table
+from app.components.tables import data_grid
 from app.data.repositories import SeedRepository
 from app.domain.cost_engine import mexico_today
 from app.domain.display_currency import (
@@ -26,7 +27,16 @@ from app.domain.pricing_simulator import (
     sensitivity_series,
     simulate_pricing,
 )
-from app.utils.currency import format_mxn, format_percent
+from app.utils.currency import format_percent
+
+CATALOG_COLUMN_OPTIONS = {
+    "plan": {"pinned": "left", "minWidth": 190},
+    "monthly_fee": {"valueFormatter": {"function": "valtehCatalogMoney(params, 0)"}},
+    "included_documents": {"valueFormatter": {"function": "valtehCatalogQuantity(params)"}},
+    "price_per_document": {"valueFormatter": {"function": "valtehCatalogMoney(params, 2)"}},
+    "overage_per_document": {"valueFormatter": {"function": "valtehCatalogMoney(params, 2)"}},
+    "setup": {"valueFormatter": {"function": "valtehCatalogSetup(params)"}},
+}
 
 
 def layout(display_currency: str | None = "MXN"):
@@ -50,15 +60,29 @@ def layout(display_currency: str | None = "MXN"):
                         className="text-muted",
                     ),
                     html.H3("Platform", className="h6"),
-                    data_table("pricing-platform-table", _plan_rows(repo, "saremi_platform"), 10),
+                    data_grid(
+                        "pricing-platform-table",
+                        _plan_rows(repo, "saremi_platform"),
+                        10,
+                        excluded_columns=["setup_label"],
+                        column_options=CATALOG_COLUMN_OPTIONS,
+                        pagination=False,
+                    ),
                     html.H3("API", className="h6 mt-4"),
                     html.P(
                         "For organizations that already have a CRM or platform and only need the processing engine.",
                         className="text-muted",
                     ),
-                    data_table("pricing-api-table", _plan_rows(repo, "saremi_api"), 10),
+                    data_grid(
+                        "pricing-api-table",
+                        _plan_rows(repo, "saremi_api"),
+                        10,
+                        excluded_columns=["setup_label"],
+                        column_options=CATALOG_COLUMN_OPTIONS,
+                        pagination=False,
+                    ),
                     html.H3("Plan crossovers", className="h6 mt-4"),
-                    data_table("pricing-crossover-table", _crossover_rows(repo), 5),
+                    data_grid("pricing-crossover-table", _crossover_rows(repo), 5, pagination=False),
                 ],
                 id="pricing-plans-section",
                 className="mb-5",
@@ -83,6 +107,8 @@ def layout(display_currency: str | None = "MXN"):
 
 
 def register_callbacks(app) -> None:
+    register_chart_tooltips(app, ("pricing-sensitivity-chart",))
+
     @app.callback(
         Output("pricing-simulation-results", "children"),
         Input("pricing-plan-filter", "value"),
@@ -93,6 +119,7 @@ def register_callbacks(app) -> None:
         Input("pricing-cost-multiplier", "value"),
         Input("pricing-target-margin", "value"),
         Input("display-currency-store", "data"),
+        Input("theme-store", "data"),
     )
     def update_simulation(
         plan_id,
@@ -103,6 +130,7 @@ def register_callbacks(app) -> None:
         cost_multiplier,
         target_margin,
         display_currency,
+        theme_data,
     ):
         values = {
             "plan_id": plan_id,
@@ -118,7 +146,11 @@ def register_callbacks(app) -> None:
             "target_margin": target_margin,
         }
         try:
-            return _simulation_content(values, display_currency)
+            return _simulation_content(
+                values,
+                display_currency,
+                theme=theme_data.get("theme") if isinstance(theme_data, dict) else None,
+            )
         except FxRateUnavailableError as exc:
             return dbc.Alert(str(exc), color="danger")
 
@@ -216,7 +248,12 @@ def _simulator_controls(repo: SeedRepository, defaults: dict):
     )
 
 
-def _simulation_content(values: dict, display_currency: str | None = "MXN"):
+def _simulation_content(
+    values: dict,
+    display_currency: str | None = "MXN",
+    *,
+    theme: str | None = None,
+):
     currency = normalize_display_currency(display_currency)
     simulation_input = _simulation_input(values)
     result = simulate_pricing(simulation_input)
@@ -288,13 +325,23 @@ def _simulation_content(values: dict, display_currency: str | None = "MXN"):
             ),
             dbc.Row(
                 [
-                    dbc.Col(dcc.Graph(figure=_sensitivity_chart(sensitivity, currency, rate)), md=7),
+                    dbc.Col(
+                        chart_with_tooltip(
+                            "pricing-sensitivity-chart",
+                            _sensitivity_chart(sensitivity, currency, rate, theme),
+                            metric_label="Operating margin",
+                            value_formatter=lambda value: format_currency(value, currency, decimals=2),
+                            series=True,
+                            height="30rem",
+                        ),
+                        md=7,
+                    ),
                     dbc.Col(
                         dbc.Card(
                             dbc.CardBody(
                                 [
                                     html.H2("Revenue and Cost Split", className="h5"),
-                                    data_table("pricing-split-table", _split_rows(result), 7),
+                                    data_grid("pricing-split-table", _split_rows(result), 7, pagination=False),
                                 ]
                             ),
                             className="content-card h-100",
@@ -305,7 +352,7 @@ def _simulation_content(values: dict, display_currency: str | None = "MXN"):
                 className="mb-4",
             ),
             html.H2("Usage and Price Sensitivity", className="h5"),
-            data_table("pricing-sensitivity-table", _sensitivity_rows(sensitivity), 8),
+            data_grid("pricing-sensitivity-table", _sensitivity_rows(sensitivity), 8, pagination=False),
         ]
     )
 
@@ -358,7 +405,12 @@ def _default_inputs(repo: SeedRepository, month: str) -> dict:
     }
 
 
-def _sensitivity_chart(rows: list[dict], display_currency: str = "MXN", rate=None):
+def _sensitivity_chart(
+    rows: list[dict],
+    display_currency: str = "MXN",
+    rate=None,
+    theme: str | None = None,
+):
     currency = normalize_display_currency(display_currency)
     df = pd.DataFrame(
         [
@@ -377,22 +429,22 @@ def _sensitivity_chart(rows: list[dict], display_currency: str = "MXN", rate=Non
         color="price_case",
         markers=True,
         title="Operating Margin Sensitivity",
+        color_discrete_map=stable_category_colors(df["price_case"].unique(), theme),
     )
     fig.update_layout(margin=dict(l=20, r=20, t=50, b=20), xaxis_title="Usage multiplier", legend_title="")
     fig.update_yaxes(title=currency, tickprefix="$", separatethousands=True)
-    fig.update_traces(hovertemplate=f"%{{x}}<br>$%{{y:,.2f}} {currency}<extra></extra>")
-    return apply_chart_theme(fig)
+    return apply_chart_theme(fig, theme)
 
 
 def _split_rows(result) -> list[dict]:
     return [
-        {"item": "Setup fee", "amount": format_mxn(result.setup_revenue)},
-        {"item": "Monthly fixed fee", "amount": format_mxn(result.subscription_revenue)},
-        {"item": "Billable usage revenue", "amount": format_mxn(result.usage_revenue)},
-        {"item": "Variable costs", "amount": format_mxn(result.variable_cost)},
-        {"item": "Allocated fixed costs", "amount": format_mxn(result.fixed_cost)},
-        {"item": "Total costs", "amount": format_mxn(result.total_cost)},
-        {"item": "Operating margin", "amount": format_mxn(result.operating_margin)},
+        {"item": "Setup fee", "amount": float(result.setup_revenue)},
+        {"item": "Monthly fixed fee", "amount": float(result.subscription_revenue)},
+        {"item": "Billable usage revenue", "amount": float(result.usage_revenue)},
+        {"item": "Variable costs", "amount": float(result.variable_cost)},
+        {"item": "Allocated fixed costs", "amount": float(result.fixed_cost)},
+        {"item": "Total costs", "amount": float(result.total_cost)},
+        {"item": "Operating margin", "amount": float(result.operating_margin)},
     ]
 
 
@@ -400,10 +452,10 @@ def _sensitivity_rows(rows: list[dict]) -> list[dict]:
     return [
         {
             "price_case": row["price_case"],
-            "usage_multiplier": f"{row['usage_multiplier']:.0%}",
-            "revenue": format_mxn(row["revenue"]),
-            "total_cost": format_mxn(row["total_cost"]),
-            "operating_margin": format_mxn(row["operating_margin"]),
+            "usage_multiplier": float(row["usage_multiplier"]),
+            "revenue": float(row["revenue"]),
+            "total_cost": float(row["total_cost"]),
+            "operating_margin": float(row["operating_margin"]),
         }
         for row in rows
     ]
@@ -420,15 +472,17 @@ def _plan_rows(repo: SeedRepository, service_line: str) -> list[dict]:
         row = {
             "plan": plan.name,
             "status": "Available" if plan.assignable else "Contact sales",
-            "monthly_fee": _format_catalog_money(plan.monthly_fixed_fee),
-            "included_documents": _format_catalog_quantity(plan.included_documents),
+            "monthly_fee": float(plan.monthly_fixed_fee) if plan.monthly_fixed_fee is not None else None,
+            "included_documents": plan.included_documents,
         }
         if service_line == "saremi_platform":
-            row["price_per_document"] = _format_catalog_money(_included_document_price(plan), decimals=2)
+            included_price = _included_document_price(plan)
+            row["price_per_document"] = float(included_price) if included_price is not None else None
         row.update(
             {
-                "overage_per_document": _format_catalog_money(plan.price_per_document, decimals=2),
-                "setup": _setup_label(plan),
+                "overage_per_document": float(plan.price_per_document) if plan.price_per_document is not None else None,
+                "setup": float(plan.setup_fee) if plan.setup_fee is not None else None,
+                "setup_label": _setup_label(plan),
                 "users": "Unlimited" if plan.unlimited_users and service_line == "saremi_platform" else "API access",
                 "processing": plan.processing_description or "Custom",
                 "configuration": plan.configuration_description or "Custom",
@@ -458,16 +512,6 @@ def _number(value, default) -> Decimal:
     return Decimal(str(value))
 
 
-def _format_catalog_money(value: Decimal | float | int | None, *, decimals: int = 0) -> str:
-    if value is None:
-        return "A la medida"
-    return f"${float(value):,.{decimals}f} MXN"
-
-
-def _format_catalog_quantity(value: int | None) -> str:
-    return f"{value:,}" if value is not None else "According to operation"
-
-
 def _included_document_price(plan) -> Decimal | None:
     if plan.monthly_fixed_fee is None or not plan.included_documents:
         return None
@@ -479,7 +523,7 @@ def _setup_label(plan) -> str:
         return "A la medida"
     if plan.setup_fee == 0:
         return "Included / $0" if plan.setup_type == "included" else "Not applicable / $0"
-    return _format_catalog_money(plan.setup_fee)
+    return f"${float(plan.setup_fee):,.0f} MXN"
 
 
 def _crossover_rows(repo: SeedRepository) -> list[dict]:

@@ -4,8 +4,8 @@ from decimal import Decimal
 
 from dash import dcc
 
-from app.components.chart_theme import DEFAULT_PLOTLY_COLORWAY
-from app.components.tables import data_table
+from app.components.chart_theme import chart_colorway
+from app.components.tables import data_grid
 from app.data.repositories import SeedRepository
 from app.domain.cost_engine import CostAmount
 from app.domain.fx_rates import ResolvedFxRate
@@ -13,7 +13,6 @@ from app.main import create_app
 from app.pages.costs import (
     _action_form,
     _catalog_rows,
-    _cost_table_styles,
     _cost_type_for_frequency,
     _month_options,
     _monthly_cost_rows,
@@ -112,7 +111,7 @@ def test_monthly_cost_table_exposes_one_fx_reference_for_usd_and_mxn_costs() -> 
 
     rows = _monthly_cost_rows(Repository(), "2026-08")
 
-    assert [row["usd_mxn_used"] for row in rows] == ["17.0427", "17.0427"]
+    assert [row["usd_mxn_used"] for row in rows] == [17.0427, 17.0427]
     assert all({"fx_rate", "fx_date", "valuation_date", "fx_status"}.isdisjoint(row) for row in rows)
 
 
@@ -132,9 +131,9 @@ def test_year_chart_stacks_fixed_and_variable_monthly_costs() -> None:
     }
     assert figure.layout.xaxis.type == "category"
     assert figure.layout.xaxis.tickformat == "%Y-%m"
-    assert all("%{fullData.name}" in trace.hovertemplate for trace in figure.data)
-    assert [trace.marker.color for trace in figure.data] == DEFAULT_PLOTLY_COLORWAY[:2]
-    assert list(figure.layout.template.layout.colorway) == DEFAULT_PLOTLY_COLORWAY
+    assert all(trace.marker.color for trace in figure.data)
+    assert [trace.marker.color for trace in figure.data] == [chart_colorway()[1], chart_colorway()[0]]
+    assert list(figure.layout.template.layout.colorway) == chart_colorway()
 
 
 def test_month_options_are_limited_to_selected_available_year() -> None:
@@ -180,13 +179,11 @@ def test_management_table_includes_ids_status_and_audit_timestamps() -> None:
     assert rows[0]["created_at"].endswith(" UTC")
     assert rows[0]["updated_at"].endswith(" UTC")
     assert len(rows[0]["id"]) >= 4
-    assert rows[0]["quantity"].replace(",", "").isdigit()
-    assert len(rows[0]["unit_cost"].split(".")[-1]) == 2
+    assert isinstance(rows[0]["quantity"], float)
+    assert isinstance(rows[0]["unit_cost"], float)
     rows_by_id = {row["id"]: row for row in rows}
     for item in repo.cost_items():
-        assert rows_by_id[f"{item.id:04d}"]["base_amount"] == (
-            f"${item.entered_configured_amount:,.2f} {item.display_currency}"
-        )
+        assert rows_by_id[f"{item.id:04d}"]["base_amount"] == float(item.entered_configured_amount)
     assert {"usd_mxn_used", "fx_rate", "fx_date", "valuation_date", "fx_status"}.isdisjoint(rows[0])
     assert all(row["status"] == row["status"].lower() for row in rows)
 
@@ -225,41 +222,36 @@ def test_selected_cost_resolves_by_stable_row_id() -> None:
     assert _selected_cost(None, rows) is None
 
 
-def test_selected_cost_row_gets_theme_safe_full_row_highlight() -> None:
-    styles = _cost_table_styles("0020")
-    selected_row_style = next(style for style in styles if style["if"].get("filter_query") == '{id} = "0020"')
+def test_selected_cost_grid_uses_stable_row_ids_and_single_selection() -> None:
+    grid = data_grid("costs", [{"id": "0020", "name": "Example"}], selectable=True, row_id_field="id")
 
-    assert selected_row_style["backgroundColor"] == "var(--color-surface-soft)"
-    assert selected_row_style["color"] == "var(--color-text)"
-    assert selected_row_style["borderTop"] == "2px solid var(--color-primary)"
+    assert grid.getRowId == "params.data.id"
+    assert grid.dashGridOptions["rowSelection"]["mode"] == "singleRow"
 
 
 def test_cost_status_cells_use_saremi_status_colors() -> None:
-    styles = _cost_table_styles(None)
-
-    active = next(style for style in styles if style["if"].get("filter_query") == '{status} = "active"')
-    inactive = next(style for style in styles if style["if"].get("filter_query") == '{status} = "inactive"')
-
-    assert active["color"] == "var(--color-status-active)"
-    assert inactive["color"] == "var(--color-danger)"
+    grid = data_grid("costs", [{"status": "active"}, {"status": "inactive"}])
+    assert grid.columnDefs[0]["cellClass"] == {"function": "valtehStatusClass(params)"}
 
 
 def test_internal_cost_fields_are_excluded_from_rendered_columns() -> None:
-    table = data_table(
+    table = data_grid(
         "test-costs-table",
         [{"id": 1, "cost_key": "internal.key", "name": "Visible", "updated_at_raw": "internal"}],
         excluded_columns=["cost_key", "updated_at_raw"],
     )
     props = table.to_plotly_json()["props"]
 
-    assert [column["id"] for column in props["columns"]] == ["id", "name"]
-    assert "hidden_columns" not in props
+    assert [column["field"] for column in props["columnDefs"]] == ["id", "name"]
 
 
-def test_base_amount_column_uses_plain_label_with_currency_in_value() -> None:
-    table = data_table("test-costs-table", [{"base_amount": "$123.45 USD"}])
+def test_base_amount_column_keeps_numeric_value_for_sorting() -> None:
+    table = data_grid("test-costs-table", [{"base_amount": 123.45}], currency="USD")
 
-    assert table.to_plotly_json()["props"]["columns"] == [{"name": "Base Amount", "id": "base_amount"}]
+    column = table.to_plotly_json()["props"]["columnDefs"][0]
+    assert column["headerName"] == "Base Amount"
+    assert column["cellDataType"] == "number"
+    assert column["filter"] == "agNumberColumnFilter"
 
 
 def test_success_refresh_signal_updates_management_table_and_dashboard() -> None:
@@ -270,7 +262,7 @@ def test_success_refresh_signal_updates_management_table_and_dashboard() -> None
         if any(item["id"] == "costs-refresh" for item in callback["inputs"])
     }
 
-    assert any("costs-table.data" in key for key in refresh_consumers)
+    assert any("costs-table.rowData" in key for key in refresh_consumers)
     assert any("costs-dashboard-content.children" in key for key in refresh_consumers)
     assert any("costs-month-filter.options" in key for key in refresh_consumers)
     assert any("costs-selected-row-id.data" in key for key in app.callback_map)

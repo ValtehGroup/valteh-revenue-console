@@ -41,8 +41,8 @@ def test_pricing_page_separates_platform_api_and_custom_terms() -> None:
 
 def test_implied_document_price_column_is_platform_only_and_follows_capacity() -> None:
     page = layout()
-    platform_columns = [column["id"] for column in _component_by_id(page, "pricing-platform-table").columns]
-    api_columns = [column["id"] for column in _component_by_id(page, "pricing-api-table").columns]
+    platform_columns = [column["field"] for column in _component_by_id(page, "pricing-platform-table").columnDefs]
+    api_columns = [column["field"] for column in _component_by_id(page, "pricing-api-table").columnDefs]
 
     assert platform_columns.index("price_per_document") == platform_columns.index("included_documents") + 1
     assert "price_per_document" not in api_columns

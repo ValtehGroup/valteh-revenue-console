@@ -5,6 +5,7 @@ The project targets Python 3.11+ and declares dependencies in `pyproject.toml`.
 | Dependency | Role |
 | --- | --- |
 | Dash, Dash Bootstrap Components | Application shell, pages, callbacks, UI components |
+| Dash AG Grid (Community) | Shared interactive tables across dashboard pages |
 | Plotly, Pandas | Charts and tabular transformations |
 | SQLAlchemy, Alembic | Persistence and schema migrations |
 | Pydantic, pydantic-settings | Domain/boundary validation and environment settings |

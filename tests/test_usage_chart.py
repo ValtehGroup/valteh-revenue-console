@@ -2,6 +2,7 @@ from decimal import Decimal
 
 from dash.development.base_component import Component
 
+from app.components.chart_theme import chart_colorway
 from app.pages.usage import (
     _aggregate_allocation_rows,
     _analysis_kpis,
@@ -35,9 +36,26 @@ def test_token_usage_chart_orders_dates_across_api_key_series() -> None:
 
     assert figure.layout.xaxis.categoryorder == "array"
     assert list(figure.layout.xaxis.categoryarray) == ["2026-08-03", "2026-08-05", "2026-08-07"]
-    assert all(
-        trace.hovertemplate == "%{fullData.name}<br>Tokens=%{customdata[0]}<extra></extra>" for trace in figure.data
-    )
+    assert all(trace.hovertemplate is None and trace.hoverinfo == "none" for trace in figure.data)
+
+
+def test_token_usage_categories_receive_distinct_stable_colors() -> None:
+    rows = [
+        {"date": "2026-08-03", "api_key_name": "production-api-key", "total_tokens": 50},
+        {"date": "2026-08-03", "api_key_name": "dev-api-key", "total_tokens": 25},
+    ]
+
+    figure = _token_usage_figure(rows, "api_key", theme="dark")
+    reversed_figure = _token_usage_figure(list(reversed(rows)), "api_key", theme="dark")
+    colors = {trace.name: trace.marker.color for trace in figure.data}
+    reversed_colors = {trace.name: trace.marker.color for trace in reversed_figure.data}
+
+    assert len(set(colors.values())) == 2
+    assert colors == reversed_colors
+    assert colors == {
+        "production-api-key": chart_colorway("dark")[0],
+        "dev-api-key": chart_colorway("dark")[4],
+    }
 
 
 def test_token_usage_hover_displays_rounded_integer_thousands() -> None:
@@ -48,7 +66,7 @@ def test_token_usage_hover_displays_rounded_integer_thousands() -> None:
 
     figure = _token_usage_figure(rows, "api_key")
 
-    assert list(figure.data[0].customdata[:, 0]) == ["127k", "1,235k"]
+    assert [row[3] for row in figure.data[0].customdata] == ["126,999", "1,234,567"]
 
 
 def test_cost_chart_uses_the_same_grouping_and_chronological_order() -> None:
@@ -63,9 +81,8 @@ def test_cost_chart_uses_the_same_grouping_and_chronological_order() -> None:
     assert list(figure.layout.xaxis.categoryarray) == ["2026-08-03", "2026-08-05", "2026-08-07"]
     assert sum(sum(trace.y) for trace in figure.data) == 6.0
     assert figure.layout.yaxis.tickprefix == "$"
-    assert all(
-        trace.hovertemplate == "%{fullData.name}<br>Cost (USD)=$%{y:,.2f}<extra></extra>" for trace in figure.data
-    )
+    assert all(trace.hovertemplate is None and trace.hoverinfo == "none" for trace in figure.data)
+    assert figure.data[0].customdata[0][3] == "$1.25 USD"
 
 
 def test_monthly_usage_groups_dates_and_api_key_series() -> None:
@@ -100,7 +117,7 @@ def test_yearly_cost_groups_dates_and_preserves_total() -> None:
     assert sum(sum(trace.y) for trace in figure.data) == 7.0
 
 
-def test_summary_table_formats_token_columns_in_thousands() -> None:
+def test_summary_table_keeps_numeric_values_for_grid_sorting() -> None:
     rows = [
         {
             "api_key_name": "production-api-key",
@@ -117,13 +134,13 @@ def test_summary_table_formats_token_columns_in_thousands() -> None:
 
     summary = _aggregate_allocation_rows(rows, "api_key")[0]
 
-    assert summary["uncached_input_tokens"] == "385.8k"
-    assert summary["cache_creation_tokens"] == "12.5k"
-    assert summary["cache_read_tokens"] == "50.0k"
-    assert summary["output_tokens"] == "96.0k"
-    assert summary["total_tokens"] == "544.4k"
+    assert summary["uncached_input_tokens"] == 385_798
+    assert summary["cache_creation_tokens"] == 12_500
+    assert summary["cache_read_tokens"] == 50_050
+    assert summary["output_tokens"] == 96_023
+    assert summary["total_tokens"] == 544_371
     assert summary["web_search_requests"] == 3
-    assert summary["allocated_cost_usd"] == "$2.44 USD"
+    assert summary["allocated_cost_usd"] == 2.444
 
 
 def test_chart_metric_selects_usage_or_cost_without_duplicating_the_plot() -> None:
@@ -139,10 +156,12 @@ def test_chart_metric_selects_usage_or_cost_without_duplicating_the_plot() -> No
 
 
 def test_over_time_graph_keeps_a_stable_height_during_group_changes() -> None:
-    graph = _anthropic_over_time_graph()
+    shell = _anthropic_over_time_graph()
+    graph = shell.children[0]
 
     assert graph.style == {"height": "32rem", "minHeight": "32rem"}
     assert graph.config["responsive"] is True
+    assert shell.children[1].id == "anthropic-over-time-chart-tooltip"
 
 
 def test_cost_disclaimer_is_attached_to_kpi_and_chart_toggle_is_compact() -> None:

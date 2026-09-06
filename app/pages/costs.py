@@ -8,9 +8,10 @@ import pandas as pd
 import plotly.express as px
 from dash import ALL, Input, Output, State, ctx, dcc, html, no_update
 
-from app.components.chart_theme import DEFAULT_PLOTLY_COLORWAY, apply_chart_theme
+from app.components.chart_shell import chart_with_tooltip, register_chart_tooltips
+from app.components.chart_theme import apply_chart_theme, chart_colorway, stable_category_colors
 from app.components.charts import bar_chart
-from app.components.tables import data_table, status_cell_styles, table_data_styles
+from app.components.tables import data_grid
 from app.data.cost_repository import (
     CostCommand,
     CostManagementError,
@@ -20,7 +21,6 @@ from app.data.cost_repository import (
 from app.data.repositories import SeedRepository
 from app.domain.display_currency import format_currency, normalize_display_currency, usd_view_note
 from app.domain.fx_rates import FxRateUnavailableError
-from app.utils.currency import format_mxn
 
 RECORD_TYPE_OPTIONS = ("actual", "estimate")
 
@@ -116,12 +116,33 @@ def layout(display_currency: str | None = "MXN"):
                     dbc.Alert(id="cost-management-message", is_open=False, dismissable=True),
                     dbc.Card(
                         dbc.CardBody(
-                            data_table(
+                            data_grid(
                                 "costs-table",
                                 _catalog_rows(repo),
                                 15,
-                                sort_by=[{"column_id": "updated_at", "direction": "desc"}],
+                                initial_sort=[{"column_id": "updated_at", "direction": "desc"}],
                                 excluded_columns=["cost_key", "created_at", "updated_at_raw"],
+                                column_options={
+                                    "name": {"pinned": "left", "minWidth": 200},
+                                    "unit_cost": {
+                                        "type": "numericColumn",
+                                        "cellDataType": "number",
+                                        "filter": "agNumberColumnFilter",
+                                        "valueFormatter": {"function": "valtehRowMoney(params, 2)"},
+                                    },
+                                    "base_amount": {
+                                        "type": "numericColumn",
+                                        "cellDataType": "number",
+                                        "filter": "agNumberColumnFilter",
+                                        "valueFormatter": {"function": "valtehRowMoney(params, 2)"},
+                                    },
+                                    "notes": {"minWidth": 240},
+                                },
+                                selectable=True,
+                                row_id_field="id",
+                                auto_height=False,
+                                height="34rem",
+                                empty_message="No costs match the selected status",
                             )
                         ),
                         className="content-card",
@@ -157,6 +178,16 @@ def layout(display_currency: str | None = "MXN"):
 
 
 def register_callbacks(app) -> None:
+    register_chart_tooltips(
+        app,
+        (
+            "costs-year-chart",
+            "costs-service-chart",
+            "costs-provider-chart",
+            "costs-category-chart",
+        ),
+    )
+
     @app.callback(
         Output("costs-year-filter", "options"),
         Output("costs-month-filter", "options"),
@@ -180,40 +211,46 @@ def register_callbacks(app) -> None:
         Input("costs-month-filter", "value"),
         Input("costs-refresh", "data"),
         Input("display-currency-store", "data"),
+        Input("theme-store", "data"),
     )
-    def update_dashboard(selected_month: str | None, _refresh: int, display_currency: str | None):
+    def update_dashboard(
+        selected_month: str | None,
+        _refresh: int,
+        display_currency: str | None,
+        theme_data: dict | None,
+    ):
         available_months = SeedRepository().available_months()
         try:
             return _dashboard_content(
                 selected_month if selected_month in available_months else _default_month(available_months),
                 display_currency,
+                theme=theme_data.get("theme") if isinstance(theme_data, dict) else None,
             )
         except FxRateUnavailableError as exc:
             return dbc.Alert(str(exc), color="danger")
 
     @app.callback(
-        Output("costs-table", "data"),
-        Output("costs-table", "active_cell"),
+        Output("costs-table", "rowData"),
+        Output("costs-table", "deselectAll"),
         Input("cost-status-filter", "value"),
         Input("costs-refresh", "data"),
+        prevent_initial_call=True,
     )
     def refresh_management_table(status: str, _refresh: int):
-        return _catalog_rows(SeedRepository(), status), None
+        return _catalog_rows(SeedRepository(), status), True
 
     @app.callback(
         Output("costs-selected-row-id", "data"),
-        Output("costs-table", "style_data_conditional"),
-        Input("costs-table", "active_cell"),
+        Input("costs-table", "selectedRows"),
         Input("cost-status-filter", "value"),
         Input("costs-refresh", "data"),
     )
-    def select_cost_row(active_cell: dict | None, _status: str, _refresh: int):
+    def select_cost_row(selected_rows: list[dict] | None, _status: str, _refresh: int):
         if ctx.triggered_id != "costs-table":
-            return None, _cost_table_styles(None)
-        if not active_cell or active_cell.get("row_id") is None:
-            return None, _cost_table_styles(None)
-        selected_row_id = active_cell["row_id"]
-        return selected_row_id, _cost_table_styles(selected_row_id)
+            return None
+        if not selected_rows or selected_rows[0].get("id") is None:
+            return None
+        return selected_rows[0]["id"]
 
     @app.callback(
         Output("cost-edit", "disabled"),
@@ -222,7 +259,7 @@ def register_callbacks(app) -> None:
         Output("cost-deactivate", "disabled"),
         Output("cost-reactivate", "disabled"),
         Input("costs-selected-row-id", "data"),
-        State("costs-table", "data"),
+        State("costs-table", "rowData"),
     )
     def enable_cost_actions(selected_row_id: int | None, table_rows: list[dict] | None):
         disabled = selected_row_id is None
@@ -251,7 +288,7 @@ def register_callbacks(app) -> None:
         Input("cost-action-cancel", "n_clicks"),
         Input("cost-action-submit", "n_clicks"),
         State("costs-selected-row-id", "data"),
-        State("costs-table", "data"),
+        State("costs-table", "rowData"),
         State("costs-action", "data"),
         State("costs-expected-updated-at", "data"),
         State({"type": "cost-field", "name": ALL}, "id"),
@@ -391,7 +428,12 @@ def register_callbacks(app) -> None:
         )
 
 
-def _dashboard_content(selected_month: str, display_currency: str | None = "MXN") -> html.Div:
+def _dashboard_content(
+    selected_month: str,
+    display_currency: str | None = "MXN",
+    *,
+    theme: str | None = None,
+) -> html.Div:
     currency = normalize_display_currency(display_currency)
     repo = SeedRepository()
     selected_year = int(selected_month[:4])
@@ -427,8 +469,13 @@ def _dashboard_content(selected_month: str, display_currency: str | None = "MXN"
             ),
             dbc.Card(
                 dbc.CardBody(
-                    dcc.Graph(
-                        figure=_year_cost_chart(year_rows, selected_year, currency),
+                    chart_with_tooltip(
+                        "costs-year-chart",
+                        _year_cost_chart(year_rows, selected_year, currency, theme),
+                        metric_label="Cost",
+                        value_formatter=lambda value: format_currency(value, currency, decimals=2),
+                        series=True,
+                        height="30rem",
                         config={"displayModeBar": False},
                     )
                 ),
@@ -438,17 +485,30 @@ def _dashboard_content(selected_month: str, display_currency: str | None = "MXN"
             dbc.Row(
                 [
                     dbc.Col(
-                        dcc.Graph(
-                            figure=_money_bar(presentation["cost_by_service"], "Costs by Service Line", currency)
+                        chart_with_tooltip(
+                            "costs-service-chart",
+                            _money_bar(presentation["cost_by_service"], "Costs by Service Line", currency, theme),
+                            metric_label="Cost",
+                            value_formatter=lambda value: format_currency(value, currency, decimals=2),
                         ),
                         md=4,
                     ),
                     dbc.Col(
-                        dcc.Graph(figure=_money_bar(presentation["cost_by_provider"], "Costs by Provider", currency)),
+                        chart_with_tooltip(
+                            "costs-provider-chart",
+                            _money_bar(presentation["cost_by_provider"], "Costs by Provider", currency, theme),
+                            metric_label="Cost",
+                            value_formatter=lambda value: format_currency(value, currency, decimals=2),
+                        ),
                         md=4,
                     ),
                     dbc.Col(
-                        dcc.Graph(figure=_money_bar(presentation["cost_by_category"], "Costs by Category", currency)),
+                        chart_with_tooltip(
+                            "costs-category-chart",
+                            _money_bar(presentation["cost_by_category"], "Costs by Category", currency, theme),
+                            metric_label="Cost",
+                            value_formatter=lambda value: format_currency(value, currency, decimals=2),
+                        ),
                         md=4,
                     ),
                 ],
@@ -456,11 +516,15 @@ def _dashboard_content(selected_month: str, display_currency: str | None = "MXN"
             ),
             dbc.Card(
                 dbc.CardBody(
-                    data_table(
+                    data_grid(
                         "monthly-costs-table",
                         _monthly_cost_rows(repo, selected_month),
                         10,
-                        column_options={"usd_mxn_used": {"name": "USD_MXN_used"}},
+                        column_options={
+                            "usd_mxn_used": {"name": "USD_MXN_used"},
+                            "unit_cost": {"valueFormatter": {"function": "valtehRowMoney(params, 2)"}},
+                        },
+                        currency="MXN",
                     )
                 ),
                 className="content-card mb-4",
@@ -525,11 +589,11 @@ def _catalog_rows(repo: SeedRepository, status: str = "all") -> list[dict]:
             "cost_type": item.cost_type,
             "frequency": item.billing_frequency,
             "charge_basis": item.charge_basis,
-            "quantity": f"{item.quantity:,.0f}",
+            "quantity": float(item.quantity),
             "unit": item.unit,
-            "unit_cost": f"{item.display_unit_cost:,.2f}",
+            "unit_cost": float(item.display_unit_cost),
             "currency": item.display_currency,
-            "base_amount": f"${item.entered_configured_amount:,.2f} {item.display_currency}",
+            "base_amount": float(item.entered_configured_amount),
             "start_date": item.start_date.isoformat() if item.start_date else "",
             "end_date": item.end_date.isoformat() if item.end_date else "",
             "record_type": item.record_type,
@@ -554,30 +618,6 @@ def _selected_cost(selected_row_id: int | str | None, table_rows: list[dict] | N
     if selected_row_id is None or not table_rows:
         return None
     return next((row for row in table_rows if row.get("id") == selected_row_id), None)
-
-
-def _cost_table_styles(selected_row_id: str | None) -> list[dict]:
-    styles = table_data_styles()
-    if selected_row_id is not None:
-        row_filter = f'{{id}} = "{selected_row_id}"'
-        styles.extend(
-            [
-                {
-                    "if": {"filter_query": row_filter},
-                    "backgroundColor": "var(--color-surface-soft)",
-                    "borderTop": "2px solid var(--color-primary)",
-                    "borderBottom": "2px solid var(--color-primary)",
-                    "color": "var(--color-text)",
-                    "fontWeight": "600",
-                },
-                {
-                    "if": {"filter_query": row_filter, "column_id": "id"},
-                    "borderLeft": "4px solid var(--color-primary)",
-                },
-            ]
-        )
-    styles.extend(status_cell_styles("status"))
-    return styles
 
 
 def _field(name: str, label: str, value=None, *, kind: str = "text", options=None, required: bool = False):
@@ -801,12 +841,12 @@ def _monthly_cost_rows(repo: SeedRepository, selected_month: str) -> list[dict]:
             "category": cost.category,
             "service_line": cost.service_line,
             "cost_type": cost.cost_type,
-            "quantity": f"{cost.quantity:,.0f}",
-            "unit_cost": f"{cost.unit_cost:,.2f}",
+            "quantity": float(cost.quantity),
+            "unit_cost": float(cost.unit_cost),
             "currency": cost.currency,
-            "usd_mxn_used": f"{reference_rates[cost.valuation_date].rate:,.4f}",
+            "usd_mxn_used": float(reference_rates[cost.valuation_date].rate),
             "unit": cost.unit,
-            "amount": format_mxn(cost.amount),
+            "amount": float(cost.amount),
             "start_date": cost.start_date.isoformat() if cost.start_date else "",
             "end_date": cost.end_date.isoformat() if cost.end_date else "",
         }
@@ -885,7 +925,12 @@ def _show_split(n_clicks: int | None) -> bool:
     return bool(n_clicks and n_clicks % 2)
 
 
-def _year_cost_chart(rows: list[dict], year: int, display_currency: str = "MXN"):
+def _year_cost_chart(
+    rows: list[dict],
+    year: int,
+    display_currency: str = "MXN",
+    theme: str | None = None,
+):
     currency = normalize_display_currency(display_currency)
     chart_rows = [
         {
@@ -909,22 +954,30 @@ def _year_cost_chart(rows: list[dict], year: int, display_currency: str = "MXN")
         barmode="stack",
         title=f"Monthly Costs in {year}",
         labels={"amount": currency, "month": "", "cost_type": "Cost type"},
-        color_discrete_sequence=DEFAULT_PLOTLY_COLORWAY,
+        color_discrete_map={
+            "Fixed + one-time": chart_colorway(theme)[1],
+            "Variable": chart_colorway(theme)[0],
+        },
     )
     figure.update_layout(
         legend_title_text="",
         margin=dict(l=20, r=20, t=50, b=20),
         hovermode="closest",
     )
-    figure.update_traces(hovertemplate=f"<b>%{{fullData.name}}</b><br>%{{x}}<br>$%{{y:,.2f}} {currency}<extra></extra>")
     figure.update_xaxes(type="category", tickformat="%Y-%m")
     figure.update_yaxes(tickprefix="$", separatethousands=True)
-    return apply_chart_theme(figure, colorway=DEFAULT_PLOTLY_COLORWAY)
+    return apply_chart_theme(figure, theme)
 
 
-def _money_bar(data: dict[str, Decimal], title: str, display_currency: str):
+def _money_bar(
+    data: dict[str, Decimal],
+    title: str,
+    display_currency: str,
+    theme: str | None = None,
+):
     currency = normalize_display_currency(display_currency)
     figure = bar_chart(data, title)
     figure.update_yaxes(title=currency)
-    figure.update_traces(hovertemplate=f"%{{x}}<br>$%{{y:,.2f}} {currency}<extra></extra>")
-    return figure
+    colors = stable_category_colors(data, theme)
+    figure.update_traces(marker_color=[colors[label] for label in data])
+    return apply_chart_theme(figure, theme)
