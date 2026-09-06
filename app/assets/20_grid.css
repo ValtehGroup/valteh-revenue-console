@@ -1,0 +1,17 @@
+.valteh-grid { min-width: 0; width: 100%; }
+.valteh-grid .ag-root-wrapper { box-shadow: var(--shadow-sm); }
+.valteh-grid .ag-cell { line-height: 1.35; }
+.valteh-grid .ag-right-aligned-cell { font-variant-numeric: tabular-nums; }
+.valteh-grid .ag-paging-panel { flex-wrap: wrap; height: auto; min-height: 48px; gap: 8px; padding: 8px; }
+.valteh-grid .ag-row-selected { box-shadow: inset 4px 0 0 var(--color-primary); font-weight: 600; }
+.valteh-grid .ag-cell-focus { outline: 2px solid var(--color-focus); outline-offset: -2px; }
+.valteh-grid .ag-cell.grid-status-active { color: var(--color-status-active) !important; font-weight: 700; }
+.valteh-grid .ag-cell.grid-status-inactive { color: var(--color-danger) !important; font-weight: 700; }
+.valteh-grid .ag-cell.grid-status-warning { color: var(--color-warning) !important; font-weight: 700; }
+.valteh-grid .grid-empty-message { color: var(--color-text-muted); padding: 1rem; }
+.valteh-grid .ag-cell-value { overflow: hidden; text-overflow: ellipsis; }
+
+@media (max-width: 576px) {
+  .valteh-grid .ag-paging-panel { justify-content: flex-start; font-size: 0.75rem; }
+  .valteh-grid .ag-paging-page-size { display: none; }
+}

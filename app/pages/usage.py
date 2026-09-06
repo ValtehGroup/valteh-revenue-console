@@ -11,9 +11,10 @@ import plotly.express as px
 import plotly.graph_objects as go
 from dash import Input, Output, State, ctx, dcc, html, no_update
 
-from app.components.chart_theme import apply_chart_theme
+from app.components.chart_shell import chart_with_tooltip, prepare_chart_figure, register_chart_tooltips
+from app.components.chart_theme import apply_chart_theme, stable_category_colors
 from app.components.kpi_card import kpi_card
-from app.components.tables import data_table
+from app.components.tables import data_grid
 from app.config import get_settings
 from app.data.anthropic_assignment_repository import (
     ENVIRONMENT_SOURCES,
@@ -218,7 +219,7 @@ def layout():
                             className="g-3 mb-3",
                         ),
                         (
-                            data_table("saremi-usage-table", saremi_rows, 15)
+                            data_grid("saremi-usage-table", saremi_rows, 15, auto_height=False, height="32rem")
                             if saremi_rows
                             else dbc.Alert("No SAREMI provider facts have been imported yet.", color="light")
                         ),
@@ -227,7 +228,14 @@ def layout():
                 className="content-card mb-4",
             ),
             html.H2("Operational usage", className="h5"),
-            data_table("usage-table", rows, 15, excluded_columns=["client_id"]),
+            data_grid(
+                "usage-table",
+                rows,
+                15,
+                excluded_columns=["client_id"],
+                auto_height=False,
+                height="32rem",
+            ),
         ]
     )
 
@@ -244,6 +252,8 @@ def _saremi_status_message(status) -> str:
 
 
 def register_callbacks(app) -> None:
+    register_chart_tooltips(app, ("anthropic-over-time-chart",))
+
     @app.callback(
         Output("anthropic-historical-controls", "style"),
         Output("anthropic-live-controls", "style"),
@@ -312,6 +322,7 @@ def register_callbacks(app) -> None:
         Input("anthropic-chart-metric", "value"),
         Input("anthropic-chart-granularity", "value"),
         Input("anthropic-assignment-version", "data"),
+        Input("theme-store", "data"),
     )
     def update_analysis(
         report_data: dict[str, Any] | None,
@@ -324,6 +335,7 @@ def register_callbacks(app) -> None:
         chart_metric: str | None,
         chart_granularity: str | None,
         _assignment_version: int | None,
+        theme_data: dict[str, Any] | None,
     ):
         if not report_data:
             return dbc.Alert("Load a report to analyze usage.", color="secondary"), go.Figure(), html.Div()
@@ -337,6 +349,7 @@ def register_callbacks(app) -> None:
             group_by if group_by in GROUP_LABELS else "api_key",
             chart_metric if chart_metric in {"usage", "cost"} else "usage",
             chart_granularity if chart_granularity in CHART_GRANULARITY_LABELS else "daily",
+            theme=theme_data.get("theme") if isinstance(theme_data, dict) else None,
         )
 
     @app.callback(
@@ -345,7 +358,7 @@ def register_callbacks(app) -> None:
         Output("anthropic-assignment-message", "is_open"),
         Output("anthropic-assignment-version", "data"),
         Input("anthropic-save-assignments", "n_clicks"),
-        State("anthropic-assignment-table", "data"),
+        State("anthropic-assignment-table", "rowData"),
         State("anthropic-assignment-version", "data"),
         prevent_initial_call=True,
     )
@@ -583,7 +596,7 @@ def _render_serialized_report(report_data: dict[str, Any]) -> html.Div:
                 className="text-muted",
             ),
             (
-                data_table(
+                data_grid(
                     "anthropic-assignment-table",
                     assignment_rows,
                     max(len(assignment_rows), 5),
@@ -682,7 +695,7 @@ def _serialize_report(report: AnthropicAdminReport, starting_at: date, ending_at
                 "cache_creation_tokens": row.cache_creation_tokens,
                 "cache_read_tokens": row.cache_read_tokens,
                 "total_tokens": row.total_tokens,
-                "estimated_cost_usd": _format_usd(row.estimated_cost_usd),
+                "estimated_cost_usd": float(row.estimated_cost_usd),
             }
             for row in report.usage_rows
         ],
@@ -694,7 +707,7 @@ def _serialize_report(report: AnthropicAdminReport, starting_at: date, ending_at
                 "model": row.model,
                 "cost_type": row.cost_type,
                 "token_type": row.token_type,
-                "amount_usd": _format_usd(row.amount_usd),
+                "amount_usd": float(row.amount_usd),
             }
             for row in report.cost_rows
         ],
@@ -711,6 +724,8 @@ def _analysis_sections(
     group_by: str,
     chart_metric: str = "usage",
     chart_granularity: str = "daily",
+    *,
+    theme: str | None = None,
 ) -> tuple[html.Div | dbc.Row, go.Figure, html.Div]:
     rows = _enriched_allocation_rows(report_data)
     filtered_rows = _filter_allocation_rows(
@@ -735,7 +750,7 @@ def _analysis_sections(
                     dbc.Alert("No usage matches the selected filters.", color="secondary"),
                 ]
             ),
-            _empty_over_time_figure(),
+            _empty_over_time_figure(theme),
             html.Div(),
         )
 
@@ -743,19 +758,19 @@ def _analysis_sections(
     detail_rows = [_display_allocation_row(row) for row in filtered_rows]
     return (
         _analysis_kpis(input_tokens, output_tokens, web_searches, allocated_cost, disclaimer),
-        _over_time_figure(filtered_rows, group_by, chart_metric, chart_granularity),
+        _over_time_figure(filtered_rows, group_by, chart_metric, chart_granularity, theme=theme),
         html.Div(
             [
                 html.H3(f"Summary by {GROUP_LABELS[group_by].lower()}", className="h6"),
-                data_table("anthropic-summary-table", summary_rows, 12),
+                data_grid("anthropic-summary-table", summary_rows, 12),
                 html.H3("Daily API-key detail", className="h6 mt-4"),
-                data_table("anthropic-daily-detail-table", detail_rows, 15),
+                data_grid("anthropic-daily-detail-table", detail_rows, 15, auto_height=False, height="32rem"),
             ]
         ),
     )
 
 
-def _empty_over_time_figure() -> go.Figure:
+def _empty_over_time_figure(theme: str | None = None) -> go.Figure:
     figure = go.Figure()
     figure.add_annotation(
         text="No usage matches the selected filters.",
@@ -770,7 +785,7 @@ def _empty_over_time_figure() -> go.Figure:
         xaxis={"visible": False},
         yaxis={"visible": False},
     )
-    return apply_chart_theme(figure)
+    return apply_chart_theme(figure, theme)
 
 
 def _analysis_kpis(
@@ -866,13 +881,6 @@ def _filter_allocation_rows(
 
 
 def _aggregate_allocation_rows(rows: list[dict[str, Any]], group_by: str) -> list[dict[str, Any]]:
-    token_columns = {
-        "uncached_input_tokens",
-        "cache_creation_tokens",
-        "cache_read_tokens",
-        "output_tokens",
-        "total_tokens",
-    }
     totals: dict[str, dict[str, Any]] = defaultdict(
         lambda: {
             "uncached_input_tokens": 0,
@@ -897,12 +905,8 @@ def _aggregate_allocation_rows(rows: list[dict[str, Any]], group_by: str) -> lis
     return [
         {
             GROUP_LABELS[group_by].lower().replace(" ", "_"): label,
-            **{
-                key: _format_thousands(value) if key in token_columns else value
-                for key, value in total.items()
-                if key != "allocated_cost_usd"
-            },
-            "allocated_cost_usd": _format_usd(total["allocated_cost_usd"]),
+            **{key: value for key, value in total.items() if key != "allocated_cost_usd"},
+            "allocated_cost_usd": float(total["allocated_cost_usd"]),
         }
         for label, total in sorted(totals.items())
     ]
@@ -923,7 +927,7 @@ def _display_allocation_row(row: dict[str, Any]) -> dict[str, Any]:
         "output_tokens": row["output_tokens"],
         "web_search_requests": row["web_search_requests"],
         "total_tokens": row["total_tokens"],
-        "allocated_cost_usd": _format_usd(_decimal(row["allocated_cost_usd"])),
+        "allocated_cost_usd": float(_decimal(row["allocated_cost_usd"])),
     }
 
 
@@ -936,7 +940,9 @@ def _period_label(raw_date: str, granularity: str) -> str:
     return day.isoformat()
 
 
-def _token_usage_figure(rows: list[dict[str, Any]], group_by: str, granularity: str = "daily"):
+def _token_usage_figure(
+    rows: list[dict[str, Any]], group_by: str, granularity: str = "daily", *, theme: str | None = None
+):
     granularity = granularity if granularity in CHART_GRANULARITY_LABELS else "daily"
     chart_rows = [
         {
@@ -961,15 +967,19 @@ def _token_usage_figure(rows: list[dict[str, Any]], group_by: str, granularity: 
             "tokens": "Tokens",
             "group": GROUP_LABELS[group_by],
         },
+        color_discrete_map=stable_category_colors(frame["group"].unique(), theme),
     )
-    figure.update_traces(hovertemplate="%{fullData.name}<br>Tokens=%{customdata[0]}<extra></extra>")
-    figure.update_layout(hovermode="x unified", legend_title_text=GROUP_LABELS[group_by])
+    figure.update_layout(legend_title_text=GROUP_LABELS[group_by])
     chronological_periods = sorted(frame["period"].unique())
     figure.update_xaxes(type="category", categoryorder="array", categoryarray=chronological_periods)
-    return apply_chart_theme(figure)
+    return prepare_chart_figure(
+        apply_chart_theme(figure, theme), "Tokens", lambda value: f"{int(value):,}", series=True
+    )
 
 
-def _cost_over_time_figure(rows: list[dict[str, Any]], group_by: str, granularity: str = "daily"):
+def _cost_over_time_figure(
+    rows: list[dict[str, Any]], group_by: str, granularity: str = "daily", *, theme: str | None = None
+):
     granularity = granularity if granularity in CHART_GRANULARITY_LABELS else "daily"
     chart_rows = [
         {
@@ -992,13 +1002,15 @@ def _cost_over_time_figure(rows: list[dict[str, Any]], group_by: str, granularit
             "cost_usd": "Cost (USD)",
             "group": GROUP_LABELS[group_by],
         },
+        color_discrete_map=stable_category_colors(frame["group"].unique(), theme),
     )
-    figure.update_traces(hovertemplate="%{fullData.name}<br>Cost (USD)=$%{y:,.2f}<extra></extra>")
-    figure.update_layout(hovermode="x unified", legend_title_text=GROUP_LABELS[group_by])
+    figure.update_layout(legend_title_text=GROUP_LABELS[group_by])
     figure.update_yaxes(tickprefix="$", tickformat=",.2f")
     chronological_periods = sorted(frame["period"].unique())
     figure.update_xaxes(type="category", categoryorder="array", categoryarray=chronological_periods)
-    return apply_chart_theme(figure)
+    return prepare_chart_figure(
+        apply_chart_theme(figure, theme), "Allocated cost", lambda value: f"${float(value):,.2f} USD", series=True
+    )
 
 
 def _over_time_figure(
@@ -1006,10 +1018,12 @@ def _over_time_figure(
     group_by: str,
     chart_metric: str,
     granularity: str = "daily",
+    *,
+    theme: str | None = None,
 ):
     if chart_metric == "cost":
-        return _cost_over_time_figure(rows, group_by, granularity)
-    return _token_usage_figure(rows, group_by, granularity)
+        return _cost_over_time_figure(rows, group_by, granularity, theme=theme)
+    return _token_usage_figure(rows, group_by, granularity, theme=theme)
 
 
 def _group_label(row: dict[str, Any], group_by: str) -> str:
@@ -1133,12 +1147,15 @@ def _chart_metric_control() -> html.Div:
     )
 
 
-def _anthropic_over_time_graph() -> dcc.Graph:
-    return dcc.Graph(
-        id="anthropic-over-time-chart",
-        figure=go.Figure(),
-        config={"displaylogo": False, "responsive": True},
-        style={"height": "32rem", "minHeight": "32rem"},
+def _anthropic_over_time_graph() -> html.Div:
+    return chart_with_tooltip(
+        "anthropic-over-time-chart",
+        go.Figure(),
+        metric_label="Tokens",
+        value_formatter=lambda value: f"{int(value):,}",
+        series=True,
+        height="32rem",
+        empty_message="Load or filter a report to view values",
     )
 
 
@@ -1206,13 +1223,13 @@ def _raw_report_details(report_data: dict[str, Any]) -> html.Div:
         [
             html.H4("Claude Code analytics by actor", className="h6 mt-3"),
             (
-                data_table("claude-usage-table", claude_rows, 15)
+                data_grid("claude-usage-table", claude_rows, 15, auto_height=False, height="30rem")
                 if claude_rows
                 else dbc.Alert("No Claude Code actor analytics were returned for this range.", color="secondary")
             ),
             html.H4("Anthropic billed cost lines", className="h6 mt-4"),
             (
-                data_table("claude-cost-table", cost_rows, 15)
+                data_grid("claude-cost-table", cost_rows, 15, auto_height=False, height="30rem")
                 if cost_rows
                 else dbc.Alert("No billed costs were returned for this range.", color="secondary")
             ),
@@ -1229,10 +1246,6 @@ def _decimal(value: Any) -> Decimal:
 
 def _format_usd(value: Decimal) -> str:
     return f"${value:,.2f} USD"
-
-
-def _format_thousands(value: int) -> str:
-    return f"{value / 1000:,.1f}k"
 
 
 def _usage_rows(repo: SeedRepository, reference_repository: ClientRepository | None = None) -> list[dict]:

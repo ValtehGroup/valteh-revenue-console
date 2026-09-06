@@ -6,10 +6,11 @@ from decimal import Decimal, InvalidOperation
 import dash_bootstrap_components as dbc
 import pandas as pd
 import plotly.express as px
-from dash import Input, Output, dcc, html, no_update
+from dash import Input, Output, ctx, dcc, html, no_update
 
-from app.components.chart_theme import apply_chart_theme
-from app.components.tables import data_table
+from app.components.chart_shell import chart_with_tooltip, prepare_chart_figure, register_chart_tooltips
+from app.components.chart_theme import apply_chart_theme, stable_category_colors
+from app.components.tables import data_grid
 from app.config import get_settings
 from app.data.fx_rate_repository import FxRateRepository
 from app.data.repositories import SeedRepository
@@ -24,7 +25,6 @@ from app.domain.scenario_forecast import (
     forecast_scenarios,
 )
 from app.integrations.banxico_sie_api import BanxicoSIEAPIError, BanxicoSIEClient
-from app.utils.currency import format_mxn, format_percent
 
 
 def layout(display_currency: str | None = "MXN"):
@@ -61,6 +61,17 @@ def layout(display_currency: str | None = "MXN"):
 
 
 def register_callbacks(app) -> None:
+    register_chart_tooltips(
+        app,
+        (
+            "scenario-revenue-chart",
+            "scenario-cost-chart",
+            "scenario-margin-chart",
+            "scenario-clients-chart",
+            "scenario-fx-history-chart",
+        ),
+    )
+
     @app.callback(
         Output("scenario-assumption-summary", "children"),
         Output("scenario-results", "children"),
@@ -68,12 +79,14 @@ def register_callbacks(app) -> None:
         Input("scenario-downside-usd-mxn-change", "value"),
         Input("scenario-upside-usd-mxn-change", "value"),
         Input("display-currency-store", "data"),
+        Input("theme-store", "data"),
     )
     def update_scenarios(
         reference_usd_mxn_rate: float | str | None,
         downside_usd_mxn_change: float | str | None,
         upside_usd_mxn_change: float | str | None,
         display_currency: str | None,
+        theme_data: dict | None,
     ):
         if None in (reference_usd_mxn_rate, downside_usd_mxn_change, upside_usd_mxn_change):
             return no_update, no_update
@@ -83,6 +96,7 @@ def register_callbacks(app) -> None:
                 downside_usd_mxn_change,
                 upside_usd_mxn_change,
                 display_currency,
+                theme=theme_data.get("theme") if isinstance(theme_data, dict) else None,
             )
         except ValueError as exc:
             return dbc.Alert(str(exc), color="danger", className="h-100 mb-0"), no_update
@@ -93,11 +107,18 @@ def register_callbacks(app) -> None:
         Output("scenario-fx-latest", "children"),
         Output("scenario-fx-history-chart", "figure"),
         Input("scenario-fx-update", "n_clicks"),
+        Input("theme-store", "data"),
         prevent_initial_call=True,
         running=[(Output("scenario-fx-update", "disabled"), True, False)],
     )
-    def update_fx_history(_n_clicks: int | None):
-        return _update_fx_history()
+    def update_fx_history(_n_clicks: int | None, theme_data: dict | None):
+        theme = theme_data.get("theme") if isinstance(theme_data, dict) else None
+        if ctx.triggered_id == "theme-store":
+            repository = FxRateRepository()
+            status = repository.status()
+            observations = _recent_fx_observations(repository, status.latest)
+            return no_update, no_update, no_update, _fx_history_figure(observations, theme)
+        return _update_fx_history(theme=theme)
 
 
 def _exchange_rate_controls(reference_rate: Decimal = DEFAULT_REFERENCE_USD_MXN_RATE) -> dbc.Card:
@@ -178,10 +199,12 @@ def _fx_history_panel(repository: FxRateRepository | None = None) -> dbc.Card:
                     className="small text-muted mt-1",
                 ),
                 dcc.Loading(
-                    dcc.Graph(
-                        id="scenario-fx-history-chart",
-                        figure=_fx_history_figure(observations),
-                        config={"displaylogo": False},
+                    chart_with_tooltip(
+                        "scenario-fx-history-chart",
+                        _fx_history_figure(observations),
+                        metric_label="MXN per USD",
+                        value_formatter=lambda value: f"{float(value):,.4f}",
+                        height="20rem",
                     ),
                     type="circle",
                 ),
@@ -194,6 +217,8 @@ def _fx_history_panel(repository: FxRateRepository | None = None) -> dbc.Card:
 def _update_fx_history(
     repository: FxRateRepository | None = None,
     client: BanxicoSIEClient | None = None,
+    *,
+    theme: str | None = None,
 ):
     repo = repository or FxRateRepository()
     if client is None:
@@ -222,7 +247,7 @@ def _update_fx_history(
         format(result.latest.rate, "f"),
         _fx_status_message(message),
         _latest_fx_label(result.latest),
-        _fx_history_figure(observations),
+        _fx_history_figure(observations, theme),
     )
 
 
@@ -245,7 +270,7 @@ def _fx_status_message(message: str, *, error: bool = False) -> html.Span:
     return html.Span(message, className=f"small {'text-danger' if error else 'text-success'}")
 
 
-def _fx_history_figure(observations: list[FxRateObservation]):
+def _fx_history_figure(observations: list[FxRateObservation], theme: str | None = None):
     if not observations:
         figure = px.line(title="USD/MXN FIX")
         figure.add_annotation(text="No FX history stored", showarrow=False)
@@ -257,10 +282,13 @@ def _fx_history_figure(observations: list[FxRateObservation]):
             }
         )
         figure = px.line(frame, x="date", y="rate", title="USD/MXN FIX")
-        figure.update_traces(hovertemplate="%{x|%Y-%m-%d}<br>%{y:.4f}<extra></extra>")
     figure.update_layout(height=300, margin=dict(l=20, r=20, t=50, b=20), xaxis_title="")
     figure.update_yaxes(title="MXN per USD", tickformat=".4f")
-    return apply_chart_theme(figure)
+    return prepare_chart_figure(
+        apply_chart_theme(figure, theme),
+        "MXN per USD",
+        lambda value: f"{float(value):,.4f}",
+    )
 
 
 def _scenario_input(
@@ -295,6 +323,8 @@ def _scenario_outputs(
     downside_usd_mxn_change: Decimal | float | int | str | None,
     upside_usd_mxn_change: Decimal | float | int | str | None,
     display_currency: str | None = "MXN",
+    *,
+    theme: str | None = None,
 ):
     reference_rate = _positive_decimal(reference_usd_mxn_rate, "Baseline USD:MXN")
     downside_change = _percentage_change(downside_usd_mxn_change, "Downside change")
@@ -311,7 +341,7 @@ def _scenario_outputs(
             "Optimistic": upside_change,
         },
     )
-    return _assumption_summary(latest_month, forecast), _scenario_results(forecast, display_currency)
+    return _assumption_summary(latest_month, forecast), _scenario_results(forecast, display_currency, theme=theme)
 
 
 def _positive_decimal(value: Decimal | float | int | str | None, label: str) -> Decimal:
@@ -338,34 +368,73 @@ def _decimal(value: Decimal | float | int | str | None, label: str) -> Decimal:
     return number
 
 
-def _scenario_results(forecast: list[ScenarioMonth], display_currency: str | None = "MXN") -> html.Div:
+def _scenario_results(
+    forecast: list[ScenarioMonth],
+    display_currency: str | None = "MXN",
+    *,
+    theme: str | None = None,
+) -> html.Div:
     currency = normalize_display_currency(display_currency)
     return html.Div(
         [
             _scenario_kpis(forecast, currency),
             dbc.Row(
                 [
-                    dbc.Col(dcc.Graph(figure=_line_chart(forecast, "revenue", "Revenue Forecast", currency)), md=6),
-                    dbc.Col(dcc.Graph(figure=_line_chart(forecast, "total_cost", "Cost Forecast", currency)), md=6),
+                    dbc.Col(
+                        chart_with_tooltip(
+                            "scenario-revenue-chart",
+                            _line_chart(forecast, "revenue", "Revenue Forecast", currency, theme),
+                            metric_label="Revenue",
+                            value_formatter=lambda value: format_currency(value, currency, decimals=2),
+                            series=True,
+                        ),
+                        md=6,
+                    ),
+                    dbc.Col(
+                        chart_with_tooltip(
+                            "scenario-cost-chart",
+                            _line_chart(forecast, "total_cost", "Cost Forecast", currency, theme),
+                            metric_label="Total cost",
+                            value_formatter=lambda value: format_currency(value, currency, decimals=2),
+                            series=True,
+                        ),
+                        md=6,
+                    ),
                 ],
                 className="mb-4",
             ),
             dbc.Row(
                 [
                     dbc.Col(
-                        dcc.Graph(figure=_line_chart(forecast, "operating_margin", "Operating Margin", currency)),
+                        chart_with_tooltip(
+                            "scenario-margin-chart",
+                            _line_chart(forecast, "operating_margin", "Operating Margin", currency, theme),
+                            metric_label="Operating margin",
+                            value_formatter=lambda value: format_currency(value, currency, decimals=2),
+                            series=True,
+                        ),
                         md=6,
                     ),
-                    dbc.Col(dcc.Graph(figure=_line_chart(forecast, "clients", "Active Clients")), md=6),
+                    dbc.Col(
+                        chart_with_tooltip(
+                            "scenario-clients-chart",
+                            _line_chart(forecast, "clients", "Active Clients", theme=theme),
+                            metric_label="Active clients",
+                            value_formatter=lambda value: f"{int(value):,}",
+                            series=True,
+                        ),
+                        md=6,
+                    ),
                 ],
                 className="mb-4",
             ),
             html.H2("Month-by-month Forecast", className="h5"),
-            data_table(
+            data_grid(
                 "scenario-forecast-table",
                 _table_rows(forecast),
                 18,
                 column_options={"usd_mxn_rate": {"name": "USD/MXN"}},
+                pagination=False,
             ),
         ]
     )
@@ -442,17 +511,30 @@ def _scenario_kpis(forecast: list[ScenarioMonth], display_currency: str = "MXN")
     )
 
 
-def _line_chart(forecast: list[ScenarioMonth], metric: str, title: str, display_currency: str = "MXN"):
+def _line_chart(
+    forecast: list[ScenarioMonth],
+    metric: str,
+    title: str,
+    display_currency: str = "MXN",
+    theme: str | None = None,
+):
     currency = normalize_display_currency(display_currency)
     df = _forecast_frame(forecast, currency)
-    fig = px.line(df, x="month", y=metric, color="scenario", markers=True, title=title)
+    fig = px.line(
+        df,
+        x="month",
+        y=metric,
+        color="scenario",
+        markers=True,
+        title=title,
+        color_discrete_map=stable_category_colors(df["scenario"].unique(), theme),
+    )
     fig.update_layout(margin=dict(l=20, r=20, t=50, b=20), xaxis_title="", legend_title="")
     if metric != "clients":
         fig.update_yaxes(title=currency, tickprefix="$", separatethousands=True)
-        fig.update_traces(hovertemplate=f"%{{x}}<br>$%{{y:,.2f}} {currency}<extra></extra>")
     else:
         fig.update_yaxes(title="Clients")
-    return apply_chart_theme(fig)
+    return apply_chart_theme(fig, theme)
 
 
 def _forecast_frame(forecast: list[ScenarioMonth], display_currency: str = "MXN") -> pd.DataFrame:
@@ -485,14 +567,14 @@ def _table_rows(forecast: list[ScenarioMonth]) -> list[dict]:
             {
                 "scenario": month.scenario,
                 "month": month.month,
-                "usd_mxn_rate": f"{month.usd_mxn_rate:.2f}",
+                "usd_mxn_rate": float(month.usd_mxn_rate),
                 "clients": month.clients,
-                "revenue": format_mxn(month.revenue),
-                "fixed_cost": format_mxn(month.fixed_cost),
-                "variable_cost": format_mxn(month.variable_cost),
-                "total_cost": format_mxn(total_cost),
-                "operating_margin": format_mxn(month.operating_margin),
-                "margin_percentage": format_percent(margin_pct),
+                "revenue": float(month.revenue),
+                "fixed_cost": float(month.fixed_cost),
+                "variable_cost": float(month.variable_cost),
+                "total_cost": float(total_cost),
+                "operating_margin": float(month.operating_margin),
+                "margin_percentage": float(margin_pct),
             }
         )
     return rows

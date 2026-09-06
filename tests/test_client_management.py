@@ -522,6 +522,6 @@ def test_pricing_downgrade_refuses_production_agreements_on_new_plans(tmp_path: 
 def test_client_callbacks_register_without_delete_or_duplicate_outputs() -> None:
     app = create_app()
 
-    assert any("clients-table.data" in key for key in app.callback_map)
+    assert any("clients-table.rowData" in key for key in app.callback_map)
     assert any("client-detail-client-filter.options" in key for key in app.callback_map)
     assert all("delete" not in key.lower() for key in app.callback_map)

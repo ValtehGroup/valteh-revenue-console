@@ -96,7 +96,10 @@ def test_fx_sync_callback_runs_only_from_explicit_button_click() -> None:
 
     callback = next(item for item in app._callback_list if "scenario-fx-history-chart.figure" in item["output"])
     assert callback["prevent_initial_call"] is True
-    assert callback["inputs"] == [{"id": "scenario-fx-update", "property": "n_clicks"}]
+    assert callback["inputs"] == [
+        {"id": "scenario-fx-update", "property": "n_clicks"},
+        {"id": "theme-store", "property": "data"},
+    ]
 
 
 def test_successful_fx_update_sets_baseline_and_refreshes_persisted_chart() -> None:

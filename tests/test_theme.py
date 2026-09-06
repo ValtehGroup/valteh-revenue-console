@@ -102,15 +102,19 @@ def test_core_theme_combinations_meet_wcag_contrast() -> None:
         assert _contrast_ratio(tokens["color-border-strong"], tokens["color-surface"]) >= 3
 
 
-def test_dark_theme_uses_saremi_brand_palette() -> None:
+def test_dark_theme_uses_layered_navy_surfaces_and_brand_accents() -> None:
     tokens = _theme_tokens("dark")
 
-    assert tokens["color-bg"] == "#09090b"
-    assert tokens["color-surface"] == "#131316"
+    assert tokens["color-bg"] == "#0b1220"
+    assert tokens["color-surface"] == "#111b2e"
+    assert tokens["color-surface-elevated"] == "#18243a"
+    assert tokens["color-text"] == "#e5e7eb"
     assert tokens["color-primary"] == "#00b4b4"
     assert tokens["color-primary-hover"] == "#4dd8d8"
     assert tokens["color-depth"] == "#0b3a82"
     assert tokens["color-danger"] == "#ef4444"
+    assert tokens["shadow-sm"] == "none"
+    assert tokens["shadow-md"] == "none"
 
 
 def test_dash_four_dropdowns_use_semantic_theme_tokens() -> None:
@@ -134,6 +138,17 @@ def test_plotly_templates_are_transparent_and_theme_specific() -> None:
         assert "Segoe UI" in layout.font.family
         assert list(layout.colorway) == PLOTLY_THEME[theme]["colorway"]
         assert layout.xaxis.gridcolor == PLOTLY_THEME[theme]["grid"]
+
+
+def test_chart_palettes_use_distinct_blue_defaults_for_each_theme() -> None:
+    expected_defaults = {"light": "#2563EB", "dark": "#60A5FA"}
+
+    for theme, expected_default in expected_defaults.items():
+        palette = PLOTLY_THEME[theme]["colorway"]
+        assert palette[0] == expected_default
+        assert len(palette) == len(set(palette))
+
+    assert PLOTLY_THEME["dark"]["colorway"][1] == "#F97316"
 
 
 def test_apply_chart_theme_normalizes_unknown_theme() -> None:
@@ -206,7 +221,7 @@ def test_theme_callbacks_register_without_output_conflicts() -> None:
     analysis_callback = next(
         callback for key, callback in app.callback_map.items() if "anthropic-analysis-summary-content.children" in key
     )
-    assert {"id": "theme-store", "property": "data"} not in analysis_callback["inputs"]
+    assert {"id": "theme-store", "property": "data"} in analysis_callback["inputs"]
 
 
 def test_usage_page_is_preserved_when_only_the_theme_changes() -> None:

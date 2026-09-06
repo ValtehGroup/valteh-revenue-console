@@ -2,12 +2,14 @@ from decimal import Decimal
 
 import dash_bootstrap_components as dbc
 import pandas as pd
-from dash import Input, Output, State, dcc, html
+from dash import Input, Output, State, html
 
+from app.components.chart_shell import chart_with_tooltip, register_chart_tooltips
+from app.components.chart_theme import apply_chart_theme, stable_category_colors
 from app.components.charts import bar_chart, pie_chart
+from app.components.executive_visuals import client_grid
 from app.components.filters import month_filter
 from app.components.kpi_card import kpi_card
-from app.components.tables import data_table
 from app.data.repositories import SeedRepository
 from app.domain.display_currency import (
     format_compact_currency,
@@ -19,7 +21,7 @@ from app.domain.display_currency import (
 from app.domain.fx_rates import FxRateUnavailableError
 from app.domain.revenue_engine import monthly_revenue_recognition_date
 from app.domain.unit_economics import calculate_break_even_usage, money
-from app.utils.currency import format_mxn, format_percent
+from app.utils.currency import format_percent
 
 
 def layout(display_currency: str | None = "MXN"):
@@ -39,15 +41,29 @@ def layout(display_currency: str | None = "MXN"):
     )
 
 
+CHART_IDS = (
+    "executive-revenue-service",
+    "executive-cost-service",
+    "executive-margin-service",
+    "executive-cost-provider",
+    "executive-cost-category",
+)
+
+
 def register_callbacks(app) -> None:
+    register_chart_tooltips(app, CHART_IDS)
+
     @app.callback(
         Output("executive-dashboard-content", "children"),
         Input("executive-month-filter", "value"),
         Input("display-currency-store", "data"),
+        Input("theme-store", "data"),
     )
-    def update_dashboard(month: str, display_currency: str | None):
+    def update_dashboard(month: str, display_currency: str | None, _theme=None):
         try:
-            return _dashboard_content(month, display_currency)
+            return _dashboard_content(
+                month, display_currency, theme=_theme.get("theme") if isinstance(_theme, dict) else None
+            )
         except FxRateUnavailableError as exc:
             return dbc.Alert(str(exc), color="danger")
 
@@ -65,7 +81,7 @@ def register_callbacks(app) -> None:
         )
 
 
-def _dashboard_content(month: str, display_currency: str | None = "MXN"):
+def _dashboard_content(month: str, display_currency: str | None = "MXN", *, theme: str | None = None):
     currency = normalize_display_currency(display_currency)
     repo = SeedRepository()
     presentation = repo.monthly_presentation(month, currency)
@@ -197,32 +213,44 @@ def _dashboard_content(month: str, display_currency: str | None = "MXN"):
             dbc.Row(
                 [
                     dbc.Col(
-                        dcc.Graph(
+                        chart_with_tooltip(
+                            "executive-revenue-service",
                             figure=_executive_pie_chart(
                                 revenue_by_service,
                                 "Revenue by Service Line",
                                 currency,
-                            )
+                                theme=theme,
+                            ),
+                            metric_label="Revenue",
+                            value_formatter=lambda value: format_currency(value, currency, decimals=2),
                         ),
                         md=4,
                     ),
                     dbc.Col(
-                        dcc.Graph(
+                        chart_with_tooltip(
+                            "executive-cost-service",
                             figure=_executive_bar_chart(
                                 cost_by_service,
                                 "Cost by Service Line",
                                 currency,
-                            )
+                                theme=theme,
+                            ),
+                            metric_label="Cost",
+                            value_formatter=lambda value: format_currency(value, currency, decimals=2),
                         ),
                         md=4,
                     ),
                     dbc.Col(
-                        dcc.Graph(
+                        chart_with_tooltip(
+                            "executive-margin-service",
                             figure=_executive_bar_chart(
                                 _margin_by_service(revenue_by_service, cost_by_service),
                                 "Margin by Service Line",
                                 currency,
-                            )
+                                theme=theme,
+                            ),
+                            metric_label="Operating margin",
+                            value_formatter=lambda value: format_currency(value, currency, decimals=2),
                         ),
                         md=4,
                     ),
@@ -232,22 +260,30 @@ def _dashboard_content(month: str, display_currency: str | None = "MXN"):
             dbc.Row(
                 [
                     dbc.Col(
-                        dcc.Graph(
+                        chart_with_tooltip(
+                            "executive-cost-provider",
                             figure=_executive_bar_chart(
                                 cost_by_provider,
                                 "Costs by Provider",
                                 currency,
-                            )
+                                theme=theme,
+                            ),
+                            metric_label="Cost",
+                            value_formatter=lambda value: format_currency(value, currency, decimals=2),
                         ),
                         md=6,
                     ),
                     dbc.Col(
-                        dcc.Graph(
+                        chart_with_tooltip(
+                            "executive-cost-category",
                             figure=_executive_bar_chart(
                                 cost_by_category,
                                 "Costs by Category",
                                 currency,
-                            )
+                                theme=theme,
+                            ),
+                            metric_label="Cost",
+                            value_formatter=lambda value: format_currency(value, currency, decimals=2),
                         ),
                         md=6,
                     ),
@@ -259,14 +295,16 @@ def _dashboard_content(month: str, display_currency: str | None = "MXN"):
                     dbc.Col(
                         [
                             html.H2("Top Clients by Revenue", className="h5"),
-                            data_table("top-clients", _display_rows(client_rows[:5]), 5),
+                            html.P("Client amounts in MXN", className="small text-muted"),
+                            client_grid("top-clients", _display_rows(client_rows[:5])),
                         ],
                         md=6,
                     ),
                     dbc.Col(
                         [
                             html.H2("Lowest-margin Clients", className="h5"),
-                            data_table("low-margin-clients", _display_rows(lowest_margin_rows), 5),
+                            html.P("Client amounts in MXN", className="small text-muted"),
+                            client_grid("low-margin-clients", _display_rows(lowest_margin_rows)),
                         ],
                         md=6,
                     ),
@@ -288,11 +326,11 @@ def _client_rows(repo: SeedRepository, month: str) -> list[dict]:
         rows.append(
             {
                 "client": client.name,
-                "revenue": format_mxn(profitability.revenue),
+                "revenue": float(profitability.revenue),
                 "revenue_value": float(profitability.revenue),
-                "variable_cost": format_mxn(profitability.variable_cost),
-                "allocated_fixed_cost": format_mxn(allocated_fixed_cost),
-                "operating_margin": format_mxn(operating_margin),
+                "variable_cost": float(profitability.variable_cost),
+                "allocated_fixed_cost": float(allocated_fixed_cost),
+                "operating_margin": float(operating_margin),
                 "operating_margin_percentage": float(operating_margin_percentage),
             }
         )
@@ -376,24 +414,41 @@ def _display_rows(rows: list[dict]) -> list[dict]:
     return [{key: value for key, value in row.items() if key != "revenue_value"} for row in rows]
 
 
-def _executive_bar_chart(data: dict[str, Decimal], title: str, display_currency: str = "MXN"):
+def _executive_bar_chart(
+    data: dict[str, Decimal], title: str, display_currency: str = "MXN", *, theme: str | None = None
+):
     currency = normalize_display_currency(display_currency)
-    figure = bar_chart(data, title, default_plotly_colors=True)
+    figure = apply_chart_theme(bar_chart(data, title), theme)
     figure.update_traces(
-        customdata=[format_compact_currency(value, currency) for value in data.values()],
-        hovertemplate="%{x}<br>%{customdata}<extra></extra>",
+        customdata=[format_currency(value, currency, decimals=2) for value in data.values()],
+        hovertemplate=None,
+        hoverinfo="none",
+        marker_color=_category_colors(data, theme),
+    )
+    figure.update_xaxes(
+        tickmode="array", tickvals=list(data), ticktext=[_short_label(label) for label in data], tickangle=0
     )
     figure.update_yaxes(title=currency, tickformat=",.0f")
     return figure
 
 
-def _executive_pie_chart(data: dict[str, Decimal], title: str, display_currency: str = "MXN"):
+def _executive_pie_chart(
+    data: dict[str, Decimal], title: str, display_currency: str = "MXN", *, theme: str | None = None
+):
     currency = normalize_display_currency(display_currency)
-    figure = pie_chart(data, title, default_plotly_colors=True)
+    figure = apply_chart_theme(pie_chart(data, title), theme)
     figure.update_traces(
-        customdata=[format_compact_currency(value, currency) for value in data.values()],
-        hovertemplate="%{label}<br>%{customdata}<extra></extra>",
+        customdata=[format_currency(value, currency, decimals=2) for value in data.values()],
+        hovertemplate=None,
+        hoverinfo="none",
+        marker_colors=_category_colors(data, theme),
+        text=[_short_label(label) for label in data],
+        textinfo="text+percent",
+        textposition="inside",
+        insidetextorientation="horizontal",
+        showlegend=False,
     )
+    figure.update_layout(uniformtext={"minsize": 12, "mode": "hide"})
     return figure
 
 
@@ -421,3 +476,12 @@ def _average_document_price(repo: SeedRepository, month: str) -> Decimal:
 
 def _margin_by_service(revenue: dict[str, Decimal], costs: dict[str, Decimal]) -> dict[str, Decimal]:
     return {service: amount - costs.get(service, Decimal("0")) for service, amount in revenue.items()}
+
+
+def _category_colors(data: dict[str, Decimal], theme: str | None = None) -> list[str]:
+    colors = stable_category_colors(data, theme)
+    return [colors[label] for label in data]
+
+
+def _short_label(label: str) -> str:
+    return label if len(label) <= 18 else label[:17] + "\u2026"

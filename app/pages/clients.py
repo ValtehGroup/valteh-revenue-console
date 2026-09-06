@@ -5,7 +5,7 @@ from decimal import Decimal
 import dash_bootstrap_components as dbc
 from dash import ALL, Input, Output, State, ctx, dcc, html, no_update
 
-from app.components.tables import data_table, status_cell_styles, table_data_styles
+from app.components.tables import data_grid
 from app.data.client_repository import (
     ClientCommand,
     ClientManagementError,
@@ -17,7 +17,6 @@ from app.data.repositories import SeedRepository
 from app.domain.display_currency import normalize_display_currency
 from app.domain.unit_economics import money
 from app.pages.client_detail import detail_section
-from app.utils.currency import format_mxn, format_percent
 
 
 def layout(display_currency: str | None = "MXN"):
@@ -71,11 +70,34 @@ def layout(display_currency: str | None = "MXN"):
             dbc.Alert(id="client-management-message", is_open=False, dismissable=True),
             dbc.Card(
                 dbc.CardBody(
-                    data_table(
+                    data_grid(
                         "clients-table",
                         _client_rows(repo, month),
                         10,
-                        excluded_columns=["id", "status", "pricing_plan_id", "updated_at_raw"],
+                        excluded_columns=[
+                            "id",
+                            "_grid_row_id",
+                            "status",
+                            "pricing_plan_id",
+                            "monthly_usage_status",
+                            "updated_at_raw",
+                        ],
+                        column_options={
+                            "client_name": {"pinned": "left", "minWidth": 210},
+                            "monthly_usage": {
+                                "headerName": "Monthly Usage",
+                                "type": "numericColumn",
+                                "cellDataType": "number",
+                                "filter": "agNumberColumnFilter",
+                                "valueFormatter": {"function": "valtehUsage(params)"},
+                            },
+                            "alerts": {"minWidth": 260},
+                        },
+                        selectable=True,
+                        row_id_field="_grid_row_id",
+                        auto_height=False,
+                        height="32rem",
+                        empty_message="No clients match the selected status",
                     )
                 ),
                 className="content-card mb-4",
@@ -110,30 +132,30 @@ def layout(display_currency: str | None = "MXN"):
 
 def register_callbacks(app) -> None:
     @app.callback(
-        Output("clients-table", "data"),
-        Output("clients-table", "active_cell"),
+        Output("clients-table", "rowData"),
+        Output("clients-table", "deselectAll"),
         Input("client-status-filter", "value"),
         Input("clients-refresh", "data"),
+        prevent_initial_call=True,
     )
     def refresh_clients_table(status: str, _refresh: int):
         repo = SeedRepository()
-        return _client_rows(repo, repo.available_months()[-1], status), None
+        return _client_rows(repo, repo.available_months()[-1], status), True
 
     @app.callback(
         Output("clients-selected-row-id", "data"),
-        Output("clients-table", "style_data_conditional"),
         Output("client-detail-client-filter", "value"),
-        Input("clients-table", "active_cell"),
+        Input("clients-table", "selectedRows"),
         Input("client-status-filter", "value"),
         Input("clients-refresh", "data"),
     )
-    def select_client_from_table(active_cell: dict | None, _status: str, _refresh: int):
+    def select_client_from_table(selected_rows: list[dict] | None, _status: str, _refresh: int):
         if ctx.triggered_id != "clients-table":
-            return None, _client_table_styles(None), no_update
-        client_id = _client_id_from_active_cell(active_cell)
+            return None, no_update
+        client_id = _client_id_from_selected_rows(selected_rows)
         if client_id is no_update:
-            return None, _client_table_styles(None), no_update
-        return client_id, _client_table_styles(client_id), client_id
+            return None, no_update
+        return client_id, client_id
 
     @app.callback(
         Output("client-detail-client-filter", "options"),
@@ -149,7 +171,7 @@ def register_callbacks(app) -> None:
         Output("client-add-reference", "disabled"),
         Output("client-deactivate-reference", "disabled"),
         Input("clients-selected-row-id", "data"),
-        State("clients-table", "data"),
+        State("clients-table", "rowData"),
     )
     def enable_client_actions(selected_id: int | None, rows: list[dict] | None):
         selected = _selected_client(selected_id, rows)
@@ -179,7 +201,7 @@ def register_callbacks(app) -> None:
         Input("client-action-cancel", "n_clicks"),
         Input("client-action-submit", "n_clicks"),
         State("clients-selected-row-id", "data"),
-        State("clients-table", "data"),
+        State("clients-table", "rowData"),
         State("clients-action", "data"),
         State("clients-expected-updated-at", "data"),
         State({"type": "client-field", "name": ALL}, "id"),
@@ -282,10 +304,10 @@ def register_callbacks(app) -> None:
         )
 
 
-def _client_id_from_active_cell(active_cell: dict | None):
-    if not active_cell or active_cell.get("row_id") is None:
+def _client_id_from_selected_rows(selected_rows: list[dict] | None):
+    if not selected_rows or selected_rows[0].get("id") is None:
         return no_update
-    return active_cell["row_id"]
+    return selected_rows[0]["id"]
 
 
 def _client_rows(repo: SeedRepository, month: str, status: str = "all") -> list[dict]:
@@ -313,6 +335,7 @@ def _client_rows(repo: SeedRepository, month: str, status: str = "all") -> list[
         rows.append(
             {
                 "id": client.id,
+                "_grid_row_id": str(client.id),
                 "client_id": client.client_code,
                 "client_name": client.name,
                 "client_type": client.client_type,
@@ -322,20 +345,17 @@ def _client_rows(repo: SeedRepository, month: str, status: str = "all") -> list[
                 "end_date": client.end_date.isoformat() if client.end_date else "",
                 "pricing_plan": plan.name if plan else "No active plan",
                 "pricing_plan_id": plan.id if plan else None,
-                "monthly_revenue": format_mxn(profitability.revenue),
+                "monthly_revenue": float(profitability.revenue),
                 "monthly_usage": (
-                    f"{_billable_document_usage(usage):,.0f}"
+                    float(_billable_document_usage(usage))
                     if subscription is not None and subscription.usage_data_status == "available"
-                    else (
-                        "Pending integration"
-                        if subscription is not None and subscription.usage_data_status == "pending"
-                        else "Demo" if subscription is not None and subscription.usage_data_status == "demo" else "—"
-                    )
+                    else None
                 ),
-                "monthly_variable_cost": format_mxn(profitability.variable_cost),
-                "allocated_fixed_cost": format_mxn(client_fixed_cost),
-                "operating_margin": format_mxn(operating_margin),
-                "operating_margin_percentage": format_percent(margin_pct),
+                "monthly_usage_status": subscription.usage_data_status if subscription is not None else "unavailable",
+                "monthly_variable_cost": float(profitability.variable_cost),
+                "allocated_fixed_cost": float(client_fixed_cost),
+                "operating_margin": float(operating_margin),
+                "operating_margin_percentage": float(margin_pct),
                 "alerts": _client_alert(client.status, plan, subscription, usage, margin_pct),
                 "created_at": _format_utc(client.created_at),
                 "updated_at": _format_utc(client.updated_at),
@@ -395,23 +415,6 @@ def _selected_client(selected_id: int | None, rows: list[dict] | None) -> dict |
     if selected_id is None or not rows:
         return None
     return next((row for row in rows if row.get("id") == selected_id), None)
-
-
-def _client_table_styles(selected_id: int | None) -> list[dict]:
-    styles = table_data_styles()
-    if selected_id is not None:
-        styles.append(
-            {
-                "if": {"filter_query": f"{{id}} = {selected_id}"},
-                "backgroundColor": "var(--color-surface-soft)",
-                "borderTop": "2px solid var(--color-primary)",
-                "borderBottom": "2px solid var(--color-primary)",
-                "color": "var(--color-text)",
-                "fontWeight": "600",
-            }
-        )
-    styles.extend(status_cell_styles("client_status"))
-    return styles
 
 
 def _client_options(clients) -> list[dict]:

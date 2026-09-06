@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from hashlib import sha256
+
 import plotly.express as px
 import plotly.graph_objects as go
 from flask import has_request_context, request
@@ -15,7 +17,7 @@ PLOTLY_THEME = {
         "axis": "#8B8172",
         "hover_bg": "#FFFFFF",
         "hover_border": "#D8D3C8",
-        "colorway": ["#0F766E", "#6B1F2E", "#B8924A", "#134E4A", "#8B7E6B", "#2563EB"],
+        "colorway": ["#2563EB", "#D97706", "#15803D", "#7C3AED", "#DC2626", "#0891B2"],
     },
     "dark": {
         "text": "#F8FAFC",
@@ -24,13 +26,49 @@ PLOTLY_THEME = {
         "axis": "#64748B",
         "hover_bg": "#1D293D",
         "hover_border": "#64748B",
-        "colorway": ["#00B4B4", "#60A5FA", "#34D399", "#FBBF24", "#EF4444", "#A78BFA"],
+        "colorway": ["#60A5FA", "#F97316", "#4ADE80", "#C084FC", "#FB7185", "#22D3EE"],
     },
 }
 
 
 def chart_colorway(theme: str | None = None) -> list[str]:
     return list(PLOTLY_THEME[_resolved_theme(theme)]["colorway"])
+
+
+def stable_category_colors(labels, theme: str | None = None) -> dict[str, str]:
+    """Assign distinct, stable colors while the palette has capacity."""
+    palette = chart_colorway(theme)
+    semantic_indices = {
+        "saremi": 0,
+        "graphos": 1,
+        "blockchain": 2,
+        "baas": 2,
+        "sigen": 3,
+        "base": 0,
+        "pessimistic": 4,
+        "optimistic": 2,
+        "production-api-key": 0,
+        "dev-api-key": 4,
+    }
+    normalized_labels = sorted({str(label) for label in labels}, key=str.casefold)
+    assigned: dict[str, str] = {}
+    used_indices: set[int] = set()
+    for label in normalized_labels:
+        preferred_index = semantic_indices.get(
+            label.lower(),
+            int.from_bytes(sha256(label.encode()).digest()[:4]),
+        ) % len(palette)
+        available_index = next(
+            (
+                (preferred_index + offset) % len(palette)
+                for offset in range(len(palette))
+                if (preferred_index + offset) % len(palette) not in used_indices
+            ),
+            preferred_index,
+        )
+        assigned[label] = palette[available_index]
+        used_indices.add(available_index)
+    return assigned
 
 
 def plotly_template(theme: str | None = None, colorway: list[str] | None = None) -> go.layout.Template:
@@ -48,6 +86,8 @@ def plotly_template(theme: str | None = None, colorway: list[str] | None = None)
     return go.layout.Template(
         layout={
             "autosize": True,
+            "barcornerradius": 5,
+            "bargap": 0.2,
             "colorway": colorway if colorway is not None else colors["colorway"],
             "font": {"color": colors["text"], "family": FONT_FAMILY, "size": 13},
             "hoverlabel": {
