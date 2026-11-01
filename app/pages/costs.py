@@ -8,6 +8,7 @@ import pandas as pd
 import plotly.express as px
 from dash import ALL, Input, Output, State, ctx, dcc, html, no_update
 
+from app.components.anthropic_costs import anthropic_cost_breakdown
 from app.components.chart_shell import chart_with_tooltip, register_chart_tooltips
 from app.components.chart_theme import apply_chart_theme, chart_colorway, stable_category_colors
 from app.components.charts import bar_chart
@@ -482,6 +483,7 @@ def _dashboard_content(
                 className="content-card mb-4",
             ),
             html.H2(f"Realized Costs for {selected_month}", className="h5"),
+            anthropic_cost_breakdown(presentation, repo.clients(), "costs-anthropic-breakdown"),
             dbc.Row(
                 [
                     dbc.Col(
@@ -841,6 +843,8 @@ def _monthly_cost_rows(repo: SeedRepository, selected_month: str) -> list[dict]:
             "category": cost.category,
             "service_line": cost.service_line,
             "cost_type": cost.cost_type,
+            "allocation": cost.cost_scope,
+            "client_id": cost.client_id,
             "quantity": float(cost.quantity),
             "unit_cost": float(cost.unit_cost),
             "currency": cost.currency,

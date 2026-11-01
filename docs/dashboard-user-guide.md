@@ -57,6 +57,13 @@ clients, and service-line performance.
 Click **Monthly Revenue** to switch between the total and its fixed-subscription/usage split. Client profitability and
 alerts use the selected accounting month.
 
+Click a bar in **Costs by Provider** or **Costs by Category** to open its cost breakdown beneath the charts.
+Both charts share one detail table; the latest click replaces its contents and sets a **Provider:** or **Category:**
+title. The table groups costs by concept, provider, fixed/variable type, allocation, and client, using the selected month and display currency.
+Anthropic includes its base subscription, internal development/testing, and production pending client allocation.
+Unassigned production is still included in Valteh's realized variable costs. Select another provider or category to change the
+detail; changing the month, currency, or theme resets the selection. The full Anthropic detail remains in **Costs**.
+
 Revenue is recognized from effective pricing subscriptions and billable usage. It is not a cash-receipts report.
 
 ## Clients
@@ -93,6 +100,20 @@ The top of the Costs page summarizes the selected month and year. Expand **Costs
 
 Only `actual` records affect realized costs and margins. `estimate` records remain visible for reference but are
 excluded from actual results.
+
+Persisted Anthropic bills contribute to realized variable costs in Executive Summary, Costs, annual cost history,
+and client margins. The API-key breakdown separates `dev-api-key` and `sandbox-api-key` as internal Valteh costs
+from `production-api-key`, which stays pending client allocation. In Usage, use **Assign API keys to clients** to
+assign a production key to one client. A shared key assigns its entire cost; leave it unassigned until ownership
+is known. Historical assignment dates determine which client receives each day's cost. Internal keys never affect
+client margins. API-key cost shares are derived from matching usage; the provider's total billed amount is preserved.
+
+Synced billed costs replace the Claude catalog rate on the same dates, including synced days with zero cost.
+Other local SAREMI processing and validation components remain separate. Catalog records are preserved for pricing
+and scenarios, and still apply outside synced dates. Sync missing history in Usage before treating a period as fully
+realized; fetching a live report does not persist it.
+The `Claude Tokens Prod` and `Claude Tokens Dev` catalog allowances are excluded from realized fixed costs;
+the base Claude subscription remains a separate expense.
 
 ### Choose the correct action
 

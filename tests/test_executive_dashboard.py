@@ -19,6 +19,7 @@ def test_executive_dashboard_is_renamed_to_executive_summary() -> None:
     assert NAV_ITEMS[0] == ("Executive Summary", "/")
     assert "Executive Summary" in str(layout())
     assert "Executive Dashboard" not in str(layout())
+    assert "Anthropic realized variable costs" not in str(layout())
 
 
 def test_executive_bar_chart_exposes_precise_tooltip_data_and_grouped_axis() -> None:
@@ -189,3 +190,97 @@ def test_explicit_theme_wins_over_previous_cookie():
     with Flask(__name__).test_request_context("/", environ_overrides={"HTTP_COOKIE": "valteh-theme=light"}):
         figure = _executive_bar_chart({"SAREMI": Decimal(10)}, "Costs", theme="dark")
     assert figure.data[0].marker.color[0] == chart_colorway("dark")[0]
+
+
+def test_provider_details_reconcile_fixed_internal_and_unassigned_production(monkeypatch):
+    from types import SimpleNamespace
+
+    from dash_ag_grid import AgGrid
+
+    amounts = [
+        ("Claude subscription", "fixed", "catalog", None, "10"),
+        ("production-api-key", "variable", "production_unassigned", None, "20"),
+        ("production-api-key", "variable", "production_unassigned", None, "5"),
+        ("dev-api-key", "variable", "internal", None, "3"),
+        ("Other provider", "fixed", "catalog", None, "99"),
+    ]
+    translated = [
+        (
+            SimpleNamespace(
+                name=name,
+                provider="Other" if name == "Other provider" else "Anthropic",
+                category="Software" if kind == "fixed" else "AI",
+                cost_type=kind,
+                cost_scope=scope,
+                client_id=client,
+            ),
+            Decimal(value),
+        )
+        for name, kind, scope, client, value in amounts
+    ]
+    calls = []
+
+    class Repo:
+        def monthly_presentation(self, month, currency):
+            calls.append((month, currency))
+            factor = Decimal("1") if currency == "USD" else Decimal("20")
+            return {
+                "cost_by_provider": {"Anthropic": Decimal("38") * factor},
+                "cost_by_category": {"Software": Decimal("109") * factor, "AI": Decimal("28") * factor},
+                "translated_costs": [(amount, value * factor) for amount, value in translated],
+            }
+
+        def clients(self):
+            return []
+
+    monkeypatch.setattr(executive_dashboard, "SeedRepository", Repo)
+    for currency, expected in [("USD", 38), ("MXN", 760)]:
+        detail = executive_dashboard._cost_details({"points": [{"x": "Anthropic"}]}, "2026-10", currency)
+        grid = next(item for item in _walk(detail) if isinstance(item, AgGrid))
+        assert len(grid.rowData) == 3
+        assert sum(row["amount"] for row in grid.rowData) == expected
+        production = next(row for row in grid.rowData if row["concept"] == "production-api-key")
+        assert production["client"] == ""
+        assert "pending client allocation" in production["allocation"]
+        assert currency in str(grid.columnDefs)
+        assert "Provider: Anthropic · 2026-10" in str(detail)
+    assert calls == [("2026-10", "USD"), ("2026-10", "MXN")]
+    assert "Click a provider" in str(executive_dashboard._cost_details(None, "2026-11"))
+    assert "Click a provider" in str(executive_dashboard._cost_details({"points": []}, "2026-11"))
+    assert "Click a provider" in str(executive_dashboard._cost_details({"points": [{"x": "Missing"}]}, "2026-10"))
+    for currency, expected in [("USD", 109), ("MXN", 2180)]:
+        detail = executive_dashboard._cost_details(
+            {"points": [{"x": "Software"}]}, "2026-10", currency, group_by="category"
+        )
+        grid = next(item for item in _walk(detail) if isinstance(item, AgGrid))
+        assert grid.id == "executive-provider-cost-table"
+        assert {row["provider"] for row in grid.rowData} == {"Anthropic", "Other"}
+        assert sum(row["amount"] for row in grid.rowData) == expected
+        assert "Category: Software · 2026-10" in str(detail)
+
+
+def test_provider_click_callback_uses_current_period_and_currency(monkeypatch):
+    from types import SimpleNamespace
+
+    from dash import Dash
+
+    app = Dash(__name__, suppress_callback_exceptions=True)
+    executive_dashboard.register_callbacks(app)
+    callback = app.callback_map["executive-provider-details.children"]
+    assert callback["inputs"] == [
+        {"id": "executive-cost-provider", "property": "clickData"},
+        {"id": "executive-cost-category", "property": "clickData"},
+    ]
+    assert callback["state"] == [
+        {"id": "executive-month-filter", "property": "value"},
+        {"id": "display-currency-store", "property": "data"},
+    ]
+    monkeypatch.setattr(
+        executive_dashboard, "_cost_details", lambda click, month, currency, *, group_by: (click, group_by)
+    )
+    render = callback["callback"].__wrapped__
+    provider_click = {"points": [{"x": "Anthropic"}]}
+    category_click = {"points": [{"x": "Software"}]}
+    for chart, expected in [("provider", provider_click), ("category", category_click), ("provider", provider_click)]:
+        monkeypatch.setattr(executive_dashboard, "ctx", SimpleNamespace(triggered_id=f"executive-cost-{chart}"))
+        assert render(provider_click, category_click, "2026-10", "MXN") == (expected, chart)

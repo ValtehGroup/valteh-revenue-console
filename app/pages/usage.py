@@ -32,6 +32,7 @@ from app.domain.anthropic_history_sync import (
     AnthropicSyncRequest,
     safe_sync_error_message,
 )
+from app.domain.anthropic_realized_costs import key_environment
 from app.integrations.anthropic_admin_api import (
     MAX_REPORT_DAYS,
     AnthropicAdminAPIError,
@@ -592,7 +593,10 @@ def _render_serialized_report(report_data: dict[str, Any]) -> html.Div:
             html.H3("Assign API keys to clients", className="h5"),
             html.P(
                 "Choose one environment and client for each API key. Saving stores the mapping in the "
-                "dashboard database; it does not modify the key in Anthropic.",
+                "dashboard database; it does not modify the key in Anthropic. "
+                "Production can remain unassigned. Dev and sandbox are internal Valteh costs and "
+                "are never charged to client profitability. A shared production key assigns its entire "
+                "cost to one client; leave it unassigned until you can identify its owner.",
                 className="text-muted",
             ),
             (
@@ -841,11 +845,16 @@ def _enriched_allocation_rows(report_data: dict[str, Any]) -> list[dict[str, Any
             )
         else:
             assignment = assignments.get(row["api_key_id"])
+        environment = key_environment(key_names.get(row["api_key_id"], ""))
+        if environment == "internal":
+            assignment = None
+        elif environment == "unassigned":
+            environment = assignment.environment if assignment else UNASSIGNED_VALUE
         row.update(
             {
                 "api_key_name": key_names.get(row["api_key_id"], row["api_key_id"]),
                 "workspace_name": workspace_names.get(row["workspace_id"], row["workspace_id"]),
-                "environment": assignment.environment if assignment else UNASSIGNED_VALUE,
+                "environment": environment,
                 "client_id": assignment.client_id if assignment else None,
                 "client_code": assignment.client_code if assignment else "Unassigned",
                 "client_name": assignment.client_name if assignment else "Unassigned",
