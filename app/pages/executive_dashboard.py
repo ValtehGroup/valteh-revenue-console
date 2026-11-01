@@ -1,8 +1,9 @@
+from collections import defaultdict
 from decimal import Decimal
 
 import dash_bootstrap_components as dbc
 import pandas as pd
-from dash import Input, Output, State, html
+from dash import Input, Output, State, ctx, html
 
 from app.components.chart_shell import chart_with_tooltip, register_chart_tooltips
 from app.components.chart_theme import apply_chart_theme, stable_category_colors
@@ -10,6 +11,7 @@ from app.components.charts import bar_chart, pie_chart
 from app.components.executive_visuals import client_grid
 from app.components.filters import month_filter
 from app.components.kpi_card import kpi_card
+from app.components.tables import data_grid
 from app.data.repositories import SeedRepository
 from app.domain.display_currency import (
     format_compact_currency,
@@ -79,6 +81,21 @@ def register_callbacks(app) -> None:
             show_split=bool(n_clicks and n_clicks % 2),
             display_currency=display_currency,
         )
+
+    @app.callback(
+        Output("executive-provider-details", "children"),
+        Input("executive-cost-provider", "clickData"),
+        Input("executive-cost-category", "clickData"),
+        State("executive-month-filter", "value"),
+        State("display-currency-store", "data"),
+    )
+    def show_cost_details(provider_click, category_click, month, display_currency):
+        group_by = "category" if ctx.triggered_id == "executive-cost-category" else "provider"
+        click_data = category_click if group_by == "category" else provider_click
+        try:
+            return _cost_details(click_data, month, display_currency, group_by=group_by)
+        except FxRateUnavailableError as exc:
+            return dbc.Alert(str(exc), color="danger")
 
 
 def _dashboard_content(month: str, display_currency: str | None = "MXN", *, theme: str | None = None):
@@ -156,7 +173,8 @@ def _dashboard_content(month: str, display_currency: str | None = "MXN", *, them
                             "Variable Costs",
                             format_currency(variable_cost, currency),
                             color="warning",
-                            tooltip="Usage-driven costs: sum of each usage event quantity multiplied by its unit cost.",
+                            tooltip="Realized Anthropic billed costs plus other usage-driven costs. "
+                            "Synced Claude costs replace the catalog Claude rate on the same dates.",
                             card_id="executive-variable-costs",
                         ),
                         md=3,
@@ -260,17 +278,19 @@ def _dashboard_content(month: str, display_currency: str | None = "MXN", *, them
             dbc.Row(
                 [
                     dbc.Col(
-                        chart_with_tooltip(
-                            "executive-cost-provider",
-                            figure=_executive_bar_chart(
-                                cost_by_provider,
-                                "Costs by Provider",
-                                currency,
-                                theme=theme,
+                        [
+                            chart_with_tooltip(
+                                "executive-cost-provider",
+                                figure=_executive_bar_chart(
+                                    cost_by_provider,
+                                    "Costs by Provider",
+                                    currency,
+                                    theme=theme,
+                                ),
+                                metric_label="Cost",
+                                value_formatter=lambda value: format_currency(value, currency, decimals=2),
                             ),
-                            metric_label="Cost",
-                            value_formatter=lambda value: format_currency(value, currency, decimals=2),
-                        ),
+                        ],
                         md=6,
                     ),
                     dbc.Col(
@@ -288,6 +308,11 @@ def _dashboard_content(month: str, display_currency: str | None = "MXN", *, them
                         md=6,
                     ),
                 ],
+                className="mb-4",
+            ),
+            html.Div(
+                _cost_details(None, month, currency),
+                id="executive-provider-details",
                 className="mb-4",
             ),
             dbc.Row(
@@ -309,6 +334,62 @@ def _dashboard_content(month: str, display_currency: str | None = "MXN", *, them
                         md=6,
                     ),
                 ]
+            ),
+        ]
+    )
+
+
+def _cost_details(
+    click_data: dict | None, month: str, display_currency: str | None = "MXN", *, group_by: str = "provider"
+):
+    prompt = html.P("Click a provider or category bar to see its cost breakdown.", className="small text-muted mt-2")
+    points = click_data.get("points", []) if isinstance(click_data, dict) else []
+    if not points or not isinstance(points[0], dict) or not isinstance(points[0].get("x"), str):
+        return prompt
+    selection = points[0]["x"]
+    currency = normalize_display_currency(display_currency)
+    repo = SeedRepository()
+    presentation = repo.monthly_presentation(month, currency)
+    grouped_costs = presentation[f"cost_by_{group_by}"]
+    if selection not in grouped_costs:
+        return prompt
+    names = {client.id: client.name for client in repo.clients()}
+    allocation_labels = {
+        "catalog": "Operating cost",
+        "internal": "Valteh internal",
+        "production_unassigned": "Production · pending client allocation",
+        "client": "Client production",
+        "unassigned": "Pending API-key allocation",
+    }
+    totals = defaultdict(lambda: Decimal("0"))
+    for amount, value in presentation["translated_costs"]:
+        provider = amount.provider or "Unassigned"
+        if (provider if group_by == "provider" else amount.category) == selection:
+            totals[(amount.name, provider, amount.cost_type, amount.cost_scope, amount.client_id)] += value
+    rows = [
+        {
+            "concept": name,
+            "provider": provider,
+            "type": cost_type.title(),
+            "allocation": allocation_labels.get(scope, scope),
+            "client": names.get(client_id, "") if scope == "client" else "",
+            "amount": float(value),
+        }
+        for (name, provider, cost_type, scope, client_id), value in totals.items()
+    ]
+    return html.Div(
+        [
+            html.H3(f"{group_by.title()}: {selection} · {month}", className="h6 mt-3"),
+            html.P(
+                f"Total: {format_currency(grouped_costs[selection], currency, decimals=2)}",
+                className="fw-semibold",
+            ),
+            data_grid(
+                "executive-provider-cost-table",
+                rows,
+                5,
+                currency=currency,
+                column_options={"concept": {"minWidth": 200}, "allocation": {"minWidth": 230}},
             ),
         ]
     )

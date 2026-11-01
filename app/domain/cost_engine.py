@@ -51,6 +51,8 @@ class CostAmount:
     valuation_date: date | None = None
     fx_rate_date: date | None = None
     provisional_fx: bool = False
+    client_id: int | None = None
+    cost_scope: str = "catalog"
 
 
 class FxRateResolver(Protocol):

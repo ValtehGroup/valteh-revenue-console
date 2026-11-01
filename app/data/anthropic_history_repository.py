@@ -120,11 +120,7 @@ class AnthropicHistoryRepository:
             watermarks = self._watermarks(session)
 
         starts = [value for value in (sync_start, usage_start, cost_start) if value is not None]
-        ends = [
-            value
-            for value in (watermarks.usage, watermarks.cost, usage_end, cost_end)
-            if value is not None
-        ]
+        ends = [value for value in (watermarks.usage, watermarks.cost, usage_end, cost_end) if value is not None]
         if not starts or not ends:
             return None
         return AnthropicHistoryRange(starting_at=min(starts), ending_at=max(ends))
@@ -158,6 +154,23 @@ class AnthropicHistoryRepository:
                 api_keys=tuple(_api_key_domain(row) for row in api_keys),
                 workspaces=tuple(_workspace_domain(row) for row in workspaces),
             )
+
+    def cost_covered_dates(self, starting_at: date, ending_at: date) -> set[date]:
+        """Successful sync ranges include measured zero-cost days, but never gaps."""
+        with self._session_factory() as session:
+            ranges = session.execute(
+                select(AnthropicSyncRunORM.completed_start_date, AnthropicSyncRunORM.completed_end_date).where(
+                    AnthropicSyncRunORM.status == "succeeded",
+                    AnthropicSyncRunORM.completed_start_date <= ending_at,
+                    AnthropicSyncRunORM.completed_end_date >= starting_at,
+                )
+            ).all()
+        return {
+            first + timedelta(days=offset)
+            for start, end in ranges
+            for first in [max(start, starting_at)]
+            for offset in range((min(end, ending_at) - first).days + 1)
+        }
 
     def persist_sync(
         self,

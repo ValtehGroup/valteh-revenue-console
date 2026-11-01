@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import calendar
 import json
 import re
 from collections import defaultdict
@@ -12,7 +13,9 @@ from sqlalchemy import or_, select
 
 from app.config import BASE_DIR, get_settings
 from app.data.fx_rate_repository import FxRateRepository
+from app.domain.anthropic_realized_costs import realized_anthropic_costs, replace_catalog_costs
 from app.domain.cost_engine import (
+    CostAmount,
     calculate_variable_cost,
     fixed_cost_occurs,
     fixed_cost_valuation_date,
@@ -367,7 +370,30 @@ class SeedRepository:
         usage = self.usage_for_month(month)
         relevant_items, valuation_dates = _monthly_fx_inputs(items, usage, period_month)
         fx_rates = self._dated_fx_rates(relevant_items, valuation_dates)
-        return monthly_cost_amounts(items, period_month, usage, fx_rates)
+        amounts = monthly_cost_amounts(items, period_month, usage, fx_rates)
+        return self._reconcile_anthropic_costs(month, amounts, items)
+
+    def _reconcile_anthropic_costs(
+        self, month: str, amounts: list[CostAmount], items: list[CostItem], *, client_id: int | None = None
+    ) -> list[CostAmount]:
+        from app.data.anthropic_assignment_repository import AnthropicAssignmentRepository
+        from app.data.anthropic_history_repository import AnthropicHistoryRepository
+
+        first = date.fromisoformat(f"{month}-01")
+        last = first.replace(day=calendar.monthrange(first.year, first.month)[1])
+        history = AnthropicHistoryRepository()
+        report = history.load_report(first, last)
+        covered = history.cost_covered_dates(first, last)
+        covered.update(date.fromisoformat(row.date) for row in report.cost_rows)
+        retained = replace_catalog_costs(amounts, items, covered)
+        if not report.cost_rows:
+            return retained
+        actuals = realized_anthropic_costs(
+            report,
+            AnthropicAssignmentRepository().list_assignment_periods(),
+            self._fx_rate_book(first, last),
+        )
+        return retained + [amount for amount in actuals if client_id is None or amount.client_id == client_id]
 
     def usd_mxn_rates_for_dates(self, valuation_dates: list[date]) -> dict[date, ResolvedFxRate]:
         """Return the persisted FIX reference for each requested display date."""
@@ -398,7 +424,7 @@ class SeedRepository:
         else:
             plan = next(plan for plan in self.pricing_plans() if plan.id == subscription.pricing_plan_id)
             revenue = calculate_client_revenue(usage, plan, subscription, pd.Timestamp(f"{month}-01").date())
-        variable_cost = self.variable_cost(usage)
+        variable_cost = self.client_monthly_presentation(client_id, month)["variable_cost"]
         return ClientProfitability(
             client_id=client_id,
             revenue=revenue,
@@ -545,11 +571,13 @@ class SeedRepository:
         for month, period_month, all_usage, client_usage in inputs:
             revenue_for_client = self.monthly_revenue_amounts(month, client_id=client_id, historical=True)
             all_costs = monthly_cost_amounts(items, period_month, all_usage, source_rates)
+            all_costs = self._reconcile_anthropic_costs(month, all_costs, items)
             client_costs = [
                 amount
                 for amount in monthly_cost_amounts(items, period_month, client_usage, source_rates)
                 if amount.cost_type == "variable"
             ]
+            client_costs = self._reconcile_anthropic_costs(month, client_costs, items, client_id=client_id)
             fixed_costs = [amount for amount in all_costs if amount.cost_type == "fixed"]
             occurrences[month] = (revenue_for_client, client_costs, fixed_costs)
             display_dates.extend(amount.recognition_date for amount in revenue_for_client)
@@ -653,7 +681,12 @@ class SeedRepository:
             monthly_inputs.append((month, period_month, month_usage))
         fx_rates = self._dated_fx_rates(all_relevant_items, all_valuation_dates)
         amounts_by_month = [
-            (month, monthly_cost_amounts(items, period_month, month_usage, fx_rates))
+            (
+                month,
+                self._reconcile_anthropic_costs(
+                    month, monthly_cost_amounts(items, period_month, month_usage, fx_rates), items
+                ),
+            )
             for month, period_month, month_usage in monthly_inputs
         ]
         display_dates = [

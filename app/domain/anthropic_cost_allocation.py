@@ -89,8 +89,10 @@ def allocate_anthropic_costs(
             unallocated_total += cost.amount_usd
             continue
 
-        for index, quantity in units:
-            share = cost.amount_usd * quantity / total_units
+        remaining = cost.amount_usd
+        for position, (index, quantity) in enumerate(units):
+            share = remaining if position == len(units) - 1 else cost.amount_usd * quantity / total_units
+            remaining -= share
             allocations[index] = replace(
                 allocations[index],
                 allocated_cost_usd=allocations[index].allocated_cost_usd + share,

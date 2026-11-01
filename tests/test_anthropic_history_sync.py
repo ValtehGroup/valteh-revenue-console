@@ -52,6 +52,22 @@ def _repository() -> tuple[AnthropicHistoryRepository, sessionmaker]:
     return AnthropicHistoryRepository(factory), factory
 
 
+def test_cost_coverage_preserves_sync_gaps_and_zero_cost_days() -> None:
+    repository, _ = _repository()
+    for day in [date(2026, 10, 1), date(2026, 10, 3)]:
+        repository.persist_sync(
+            AnthropicAdminReport((), (), ()),
+            starting_at=day,
+            ending_at=day,
+            mode="incremental",
+            started_at=datetime.now(UTC),
+        )
+    assert repository.cost_covered_dates(date(2026, 10, 1), date(2026, 10, 31)) == {
+        date(2026, 10, 1),
+        date(2026, 10, 3),
+    }
+
+
 def _report(day: date, *, tokens: int = 100, cost: str = "1.25") -> AnthropicAdminReport:
     return AnthropicAdminReport(
         usage_rows=(),
